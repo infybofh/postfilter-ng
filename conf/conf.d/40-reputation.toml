@@ -1,0 +1,50 @@
+###############################################################################
+# DNS reputation providers.
+# refused_codes are service/error responses and MUST NOT be treated as listings.
+# A provider enters cooldown after failure_threshold consecutive failures.
+#
+# Reputation entries are shared unless they declare:
+#
+#   article_types = ["text"]
+#
+# or:
+#
+#   article_types = ["binary"]
+#
+# URI-domain reputation checks are skipped by the shipped binary profile because
+# scanning and resolving URLs inside encoded segments is expensive and normally
+# meaningless.  IP DNSBL checks remain shared unless you deliberately scope them.
+###############################################################################
+
+[[dnsbl]]
+id = "sorbs-socks-zombies"
+enabled = true
+zone = "dnsbl.sorbs.net"
+positive_codes = ["127.0.0.3", "127.0.0.9"]
+refused_codes = ["127.0.0.1"]
+action = "reject"
+failure_threshold = 5
+cooldown_seconds = 300
+positive_cache_seconds = 3600
+negative_cache_seconds = 300
+on_timeout = "accept"
+
+[[surbl]]
+id = "multi-surbl"
+enabled = true
+zone = "multi.surbl.org"
+positive_codes = ["127.0.0.2", "127.0.0.4", "127.0.0.8", "127.0.0.16", "127.0.0.32", "127.0.0.64"]
+refused_codes = ["127.0.0.1"]
+action = "reject"
+failure_threshold = 5
+cooldown_seconds = 300
+
+[[uribl]]
+id = "uribl-black"
+enabled = true
+zone = "black.uribl.com"
+positive_codes = ["127.0.0.2"]
+refused_codes = ["127.0.0.1"]
+action = "reject"
+failure_threshold = 5
+cooldown_seconds = 300

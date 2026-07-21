@@ -1,0 +1,66 @@
+###############################################################################
+# Trusted profiles replace the all-or-nothing legacy whitelist.
+#
+# A profile may match authenticated users, source CIDRs, From, groups and one
+# or more arbitrary headers.  `match_mode = "any"` means any supplied identity
+# is enough; `all` requires every supplied condition.  Profiles are evaluated
+# by descending priority and the first match wins.
+#
+# Every check can be skipped independently.  `full_bypass` additionally skips
+# the whole pipeline and should be used only for controlled local injectors.
+#
+# Add `article_types = ["text"]` or `["binary"]` when trust must apply to one
+# world only.  Omit it for shared administrator identities.  Article-type scope
+# never permits a mixed text/binary crosspost: that invariant is checked before
+# trusted profiles, including full bypass.
+###############################################################################
+
+[[trusted_profile]]
+id = "administrators"
+enabled = true
+priority = 2000
+match_all = false
+match_mode = "any"
+authenticated_users = ["ivo", "newsadmin"]
+source_networks = ["127.0.0.1/32", "::1/128"]
+from_pattern = '@bofh\.team$'
+skip_checks = [
+  "rate_limit", "rbl", "uribl", "tor", "badwords", "banlist"
+]
+full_bypass = false
+
+# Operational whitelist converted to explicit profiles from rules.conf.  The IPs are
+# represented as CIDR rather than unsafe regexes.  Header expressions remain
+# deliberately broad because that was the existing administrative policy.
+[[trusted_profile]]
+id = "operational-admin-identities"
+enabled = true
+priority = 1900
+match_all = false
+match_mode = "any"
+source_networks = [
+  "94.23.43.182/32",
+  "172.116.255.254/32"
+]
+header_match = [
+  { name = "Sender", pattern = '(?:aioe@|@bofh\.team)' },
+  { name = "From", pattern = '(?:@bofh\.team|miakibot@miakinen\.net|antiflood@miakinen\.net)' }
+]
+skip_checks = [
+  "rate_limit", "rbl", "uribl", "tor", "badwords", "banlist"
+]
+full_bypass = false
+
+# Disabled example for a completely trusted local injector.  It remains
+# explicit and opt-in; enabling it bypasses even structural checks.
+[[trusted_profile]]
+id = "example-local-full-bypass"
+enabled = false
+priority = 3000
+match_mode = "all"
+source_networks = ["127.0.0.1/32"]
+header_match = [
+  { name = "X-Postfilter-Internal-Token", pattern = '^replace-with-a-secret$' }
+]
+skip_checks = []
+full_bypass = true

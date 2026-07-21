@@ -1,0 +1,93 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+=head1 NAME
+
+postfilter - INN filter_nnrpd.pl entry point for Postfilter-NG.
+
+=head1 INSTALLATION
+
+The installer creates a review-only candidate:
+
+  <pathfilter>/filter_nnrpd.pl.ng -> <prefix>/postfilter
+
+The newsmaster activates it explicitly by backing up any existing hook and
+renaming the candidate to C<filter_nnrpd.pl>.  INN then loads this file once for
+each nnrpd process.  The engine is constructed on
+first use and reused for all POST commands in that client session.  C<filter_end>
+is an official nnrpd Perl-hook callback and closes the SQLite connection before
+INN unloads the filter.
+
+=cut
+
+use Cwd ();
+use File::Basename ();
+
+BEGIN {
+    # INN loads filter_nnrpd.pl through its embedded Perl interpreter.  In that
+    # environment $0 identifies nnrpd, not this file, so FindBin cannot locate
+    # the installed module tree.  __FILE__ identifies the loaded hook and
+    # abs_path resolves the operator-created filter_nnrpd.pl symlink.
+    my $entry_point = Cwd::abs_path(__FILE__) // __FILE__;
+    my $project_root = File::Basename::dirname($entry_point);
+    unshift @INC, "$project_root/lib";
+}
+
+use Postfilter::NG;
+
+our (%hdr, %attributes, $body, $user, $modify_headers);
+
+my $engine;
+
+# Function: _engine
+# Purpose: Lazily constructs one Postfilter-NG engine for the lifetime of the current nnrpd
+#          process.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: Failure behaviour is explicit in the function body and follows the caller’s
+#                    configured fail-open/fail-closed policy.
+sub _engine {
+    return $engine if $engine;
+
+    $engine = Postfilter::NG->new(
+        config =>
+            $ENV{POSTFILTER_CONFIG}
+            // '/etc/news/postfilter-ng/postfilter.toml',
+        state_dir =>
+            $ENV{POSTFILTER_STATE_DIR}
+            // '/var/lib/news/postfilter-ng',
+    );
+
+    return $engine;
+}
+
+# Function: filter_post
+# Purpose: INN hook entry point that passes one POST to the reusable Postfilter-NG engine.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: Failure behaviour is explicit in the function body and follows the caller’s
+#                    configured fail-open/fail-closed policy.
+sub filter_post {
+    # Tell INN that changes made to %hdr should be written back to the article.
+    $modify_headers = 1;
+
+    return _engine()->process_article(
+        attributes => \%attributes,
+        body       => $body // '',
+        headers    => \%hdr,
+        user       => $user // '',
+    );
+}
+
+# Function: filter_end
+# Purpose: INN hook shutdown callback that releases the per-nnrpd engine and database handle.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: Failure behaviour is explicit in the function body and follows the caller’s
+#                    configured fail-open/fail-closed policy.
+sub filter_end {
+    $engine->shutdown if $engine;
+    undef $engine;
+    return '';
+}
+
+1;

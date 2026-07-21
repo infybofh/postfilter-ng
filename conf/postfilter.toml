@@ -1,0 +1,818 @@
+###############################################################################
+# Postfilter-NG 2026.07.5-rc2
+# Main configuration file
+###############################################################################
+#
+# This file is designed to be read as an operating manual, not merely parsed by
+# the program.  Values shown here are conservative defaults for a public or mixed
+# INN reader.  The release ships in AUDIT mode: technical rejections are recorded
+# but normally accepted until the operator has studied real traffic.
+#
+# Loading and failure behaviour
+# -----------------------------
+# 1. The main file and sorted conf.d/*.toml fragments are parsed with TOML::Tiny.
+# 2. Invalid individual regex rules are disabled and reported to news.err.
+# 3. A syntax error in the TOML generation rejects the whole generation.
+# 4. A running nnrpd process keeps its previous in-memory generation.
+# 5. A new nnrpd process loads last-known-good.json.
+# 6. If no snapshot exists, an embedded minimal fail-open configuration is used.
+#
+# TOML and regular-expression reminders
+# --------------------------------------
+# - Prefer single-quoted TOML strings for regexes.  Backslashes are literal:
+#       pattern = '(?i)^[^@\s]+@bofh\.team$'
+# - In a double-quoted TOML string, backslashes have TOML escaping rules.
+# - Anchor identity regexes with ^ and $ unless substring matching is intended.
+# - A dot means "any character" in a regex; a literal dot is written \.
+# - Use match_type = "exact" when regex power is not required.
+###############################################################################
+
+# Distribution values accepted by the structural check.  The transformation
+# stage treats "local" and "usenet" specially:
+# - local: remember the Message-ID so replies inherit Distribution: local;
+# - usenet: remove the Distribution header before INN stores the article.
+distributions = ["local", "trash", "usenet"]
+
+# When headers.delete_custom_headers is enabled, only these headers survive.
+# This mode is powerful and dangerous; the default is disabled.
+saved_headers = [
+    "Path",
+    "From",
+    "Sender",
+    "Newsgroups",
+    "Followup-To",
+    "Date",
+    "Subject",
+    "Organization",
+    "Lines",
+    "Message-ID",
+    "References",
+    "X-Complaints-To",
+    "Content-Type",
+    "Injection-Date",
+    "Injection-Info",
+    "Xref",
+]
+
+
+###############################################################################
+# TEXT/BINARY SERVER MODE AND EARLY ARTICLE CLASSIFICATION
+###############################################################################
+# Postfilter-NG does not provide a "binary-only" mode because modern Usenet
+# binary readers also carry text groups and text discussion posts.  Choose one
+# of the two real operating modes:
+#
+# text-only
+#     Every article uses the text policy, regardless of its group name.  yEnc
+#     and uuencode are rejected by the text content policy.  This is the safest
+#     choice for a classic text reader.
+#
+# mixed
+#     Group names are classified before any ordinary check.  An article sent
+#     only to matching groups uses the binary policy; an article sent only to
+#     non-matching groups uses the text policy.  A crosspost containing both
+#     types is rejected immediately with PF-GROUP-095, even in audit mode.
+#
+# Classification is intentionally based on Newsgroups, not on the body.  This
+# means a plain text discussion article in alt.binaries.* still belongs to the
+# binary world, while a tiny yEnc attachment in a text group remains a text
+# article and is rejected.
+[article_types]
+mode = "text-only"
+pattern_syntax = "glob"
+mixed_crosspost_policy = "reject"
+
+# These are shell-style globs, NOT Perl regexes:
+#   * matches zero or more characters;
+#   ? matches exactly one character;
+#   every dot is a literal dot;
+#   matching is case-insensitive and anchored to the whole group name.
+#
+# The list below reproduces the historical patterns supplied by the newsmaster.
+# It is deliberately editable: add future private or unusual binary hierarchies
+# here instead of changing Perl code.
+binary_group_patterns = [
+    "*.bin*",
+    "alt.b",
+    "alt.bin*",
+    "alt.binaries.*",
+    "alt.dvdnordic.*",
+    "*.bain*",
+    "*.biana*",
+    "*.biinaries*",
+    "*bina*",
+    "*.bineries*",
+    "*.binia*",
+    "*.binries*",
+    "*.cd.image*",
+    "*.files.images*",
+    "*.mp3*",
+    "*music.bin*",
+    "*.pictures*",
+    "*porno.images*",
+    "*images*",
+    "*.warez*",
+]
+
+###############################################################################
+# TEXT ARTICLE POLICY
+###############################################################################
+[article_types.text.limits]
+# These defaults intentionally approximate a strict text reader.  The values
+# are ordinary byte counts and may be raised or lowered independently.
+max_body_size = 32768
+max_header_size = 8192
+max_total_size = 40960
+max_body_scan_bytes = 32768
+
+# Any other key accepted in [limits] may also be overridden here.  Omitted keys
+# inherit the shared [limits] value below.  For example:
+# max_crosspost = 5
+# max_line_length = 0
+# max_rule_evaluations = 2000
+
+[article_types.text.content]
+# Strict means strict: a yEnc or uuencode payload is rejected even when it is
+# smaller than 32 KiB.  This prevents a mixed reader from becoming a convenient
+# binary leak into text-only groups.
+allow_yenc = false
+allow_uuencode = false
+allow_html = false
+
+
+###############################################################################
+# STRICT MIME AND BASE64 POLICY FOR TEXT ARTICLES
+###############################################################################
+[article_types.text.mime]
+# Enable the MIME/attachment detector for text articles.  This check is separate
+# from yEnc/uuencode detection because ordinary email-style attachments use MIME
+# containers, Content-Disposition metadata and usually Base64 transfer encoding.
+enabled = true
+
+# multipart/mixed is the normal MIME container for a text message plus one or
+# more attachments.  It is rejected outright in text groups.  PGP/MIME signed
+# messages normally use multipart/signed and are handled separately below.
+reject_multipart_mixed = true
+
+# When true, every multipart subtype must appear in allowed_multipart_types.
+# This blocks multipart/related and multipart/encrypted unless the newsmaster
+# explicitly decides they are appropriate for text newsgroups.
+reject_unlisted_multipart = true
+
+# Reject Content-Disposition: attachment.  The companion filename check also
+# catches Content-Disposition: inline; filename="file.zip" and the historical
+# Content-Type: application/octet-stream; name="file.zip" form.
+reject_attachment_disposition = true
+reject_filename_parameter = true
+
+# Signature and certificate parts are commonly labelled as attachments by mail
+# libraries.  Allow that metadata only for an explicitly allowed media type and
+# only while the decoded-size ceiling below is respected.
+allow_attachment_disposition_for_allowed_media = true
+
+# reject: malformed multipart boundaries or headers reject the text article.
+# accept: log news.err, skip only the malformed MIME structure and continue with
+#         yEnc, uuencode, size, banlist and all other checks.
+on_malformed = "reject"
+
+# Work limits prevent intentionally nested MIME messages from consuming
+# unbounded CPU.  Reaching either limit follows on_malformed.
+max_mime_depth = 8
+max_mime_parts = 100
+
+# These safe multipart containers may pass the historical text/plain check and
+# reach the recursive MIME inspector:
+# - multipart/signed: PGP/MIME and S/MIME detached signatures;
+# - multipart/alternative: usually text/plain plus text/html.  The existing
+#   HTML policy still rejects forbidden HTML tags when allow_html=false.
+allowed_multipart_types = [
+    "multipart/alternative",
+    "multipart/signed",
+]
+
+# application/* is forbidden below, but these cryptographic objects are useful
+# in technical discussion groups.  Matching is case-insensitive MIME glob
+# matching.  Add a type only after checking that accepting it cannot become a
+# generic binary bypass.
+allowed_media_types = [
+    "application/pgp-signature",
+    "application/pgp-keys",
+    "application/pkcs7-signature",
+    "application/x-pkcs7-signature",
+    "application/pkix-cert",
+    "application/x-x509-ca-cert",
+    "application/pem-certificate-chain",
+]
+
+# Maximum estimated decoded size of one allowed cryptographic MIME part.
+# A normal detached signature or certificate is far smaller than 256 KiB.
+# The ceiling prevents an archive from bypassing policy merely by claiming to
+# be application/pgp-signature.
+allowed_media_max_decoded_bytes = 262144
+
+# MIME globs rejected in text groups unless they first match allowed_media_types.
+# multipart/mixed has its own clearer reason code.  text/html is left to the
+# existing HTML policy so a newsmaster can allow it for selected groups.
+forbidden_media_types = [
+    "application/*",
+    "audio/*",
+    "font/*",
+    "image/*",
+    "message/rfc822",
+    "model/*",
+    "video/*",
+]
+
+# Large unlabelled Base64 blocks are often attachments disguised as text/plain.
+# A rejection requires BOTH the minimum number of contiguous lines and the
+# estimated decoded-byte threshold, reducing false positives for short examples.
+base64_heuristic_enabled = true
+base64_min_contiguous_lines = 12
+base64_min_line_length = 60
+
+# Zero means no upper line-length limit.  A non-zero value can reduce false
+# positives in unusual technical groups, but it also creates an evasion route
+# for encoders which choose wider lines.
+base64_max_line_length = 0
+base64_min_decoded_bytes = 4096
+
+# Independently reject one enormous Base64 line once its estimated decoded size
+# reaches this value.  This closes the obvious one-line evasion of the ordinary
+# contiguous-line threshold.  Zero disables this special case.
+base64_single_line_min_decoded_bytes = 8192
+
+# Quoted Base64 examples in replies (lines beginning with >) are ignored by
+# default.  Indented examples are still inspected because an attacker could
+# trivially indent a payload; set this true only for programming groups where
+# long indented Base64 examples are common and accepted by local policy.
+base64_ignore_quoted_lines = true
+base64_ignore_indented_lines = false
+
+# Complete ASCII-armoured cryptographic blocks are removed from the Base64
+# heuristic scan copy when BEGIN/END labels match this list and the complete
+# block is no larger than armored_block_max_bytes. Unterminated and oversized
+# blocks remain visible to the Base64 heuristic. The scanner is line-oriented
+# and processes each input byte once.
+allowed_armored_block_types = [
+    "PGP SIGNATURE",
+    "PGP PUBLIC KEY BLOCK",
+    "PGP PRIVATE KEY BLOCK",
+    "CERTIFICATE",
+    "X509 CERTIFICATE",
+]
+armored_block_max_bytes = 262144
+
+[article_types.text.checks]
+# Text articles run every ordinary check by default.
+skip = []
+
+[article_types.text.save_rejected]
+# none:     never save automatically for this article type.
+# all:      save every technical rejection.
+# selected: save only when one of the three selectors below matches.
+#
+# Rule-level save_article=true and a global policy action "save" still override
+# this choice.  Keep policy.action_on_reject="reject" when these per-type rules
+# should be the sole automatic saving mechanism.
+mode = "selected"
+reason_codes = [
+    "PF-BODY-052",
+    "PF-BODY-062",
+    "PF-MIME-109",
+    "PF-MIME-110",
+    "PF-MIME-111",
+    "PF-BODY-112",
+    "PF-MIME-113",
+    "PF-MIME-114",
+]
+compatibility_codes = []
+rule_ids = []
+subdirectory = "text"
+
+###############################################################################
+# BINARY ARTICLE POLICY
+###############################################################################
+[article_types.binary.limits]
+# A 10 MiB body plus 64 KiB headers.  Raise these for servers accepting larger
+# segments; lower them when upstream/server policy uses smaller article chunks.
+max_body_size = 10485760
+max_header_size = 65536
+max_total_size = 10551296
+
+# Expensive scanners inspect only the first MiB by default.  Absolute size
+# checks still see the complete article.  Set this equal to max_body_size when
+# every byte must be inspected, accepting the corresponding CPU cost.
+max_body_scan_bytes = 1048576
+
+[article_types.binary.content]
+# Setting allow_yenc or allow_uuencode to false keeps the group classified as
+# binary but rejects that payload type with PF-BODY-102.  This is useful for a
+# mixed reader that carries a binary-named hierarchy with a stricter local
+# attachment policy.
+allow_yenc = true
+allow_uuencode = true
+allow_html = false
+
+
+###############################################################################
+# MIME POLICY FOR BINARY ARTICLES
+###############################################################################
+[article_types.binary.mime]
+# Binary groups are expected to carry MIME attachments, Base64, yEnc and
+# uuencode.  The strict text attachment detector is therefore disabled by
+# default.  The table still exists so a newsmaster can independently enable a
+# bounded MIME policy for a particular binary service without changing code.
+enabled = false
+reject_multipart_mixed = false
+reject_unlisted_multipart = false
+reject_attachment_disposition = false
+reject_filename_parameter = false
+allow_attachment_disposition_for_allowed_media = true
+on_malformed = "accept"
+max_mime_depth = 8
+max_mime_parts = 500
+allowed_multipart_types = []
+allowed_media_types = []
+forbidden_media_types = []
+allowed_media_max_decoded_bytes = 10485760
+base64_heuristic_enabled = false
+base64_min_contiguous_lines = 12
+base64_min_line_length = 60
+
+# Zero means no upper line-length limit.  A non-zero value can reduce false
+# positives in unusual technical groups, but it also creates an evasion route
+# for encoders which choose wider lines.
+base64_max_line_length = 0
+base64_min_decoded_bytes = 4096
+
+# Independently reject one enormous Base64 line once its estimated decoded size
+# reaches this value.  This closes the obvious one-line evasion of the ordinary
+# contiguous-line threshold.  Zero disables this special case.
+base64_single_line_min_decoded_bytes = 8192
+base64_ignore_quoted_lines = true
+base64_ignore_indented_lines = false
+allowed_armored_block_types = []
+armored_block_max_bytes = 1048576
+
+[article_types.binary.checks]
+# These checks were designed for human-readable text and are normally wasteful
+# or actively misleading on encoded binary segments.  Remove an item to enable
+# it for binary groups; add other pipeline names when local policy requires it.
+#
+# Available coarse checks include: style, binary, userdb, tor, rbl, uribl,
+# banlist, badwords, rate_limit, custom, headers.
+# Style also exposes the fine-grained names below.
+skip = [
+    "style.line_statistics",
+    "style.html",
+    "style.content_type",
+    "badwords",
+    "uribl",
+]
+
+[article_types.binary.save_rejected]
+# Binary articles can be very large.  The safe default saves none.  During a
+# focused investigation switch to selected and name one reason/rule, instead of
+# accidentally filling the spool with every rejected 10 MiB segment.
+mode = "none"
+reason_codes = []
+compatibility_codes = []
+rule_ids = []
+subdirectory = "binary"
+
+[policy]
+# enforce: technical results affect the NNTP response.
+# audit:   all checks run and are stored, but ordinary technical rejects are
+#          accepted.  server_status="closed" remains enforced.
+mode = "audit"
+
+# active: normal processing.
+# closed: reject every POST with historical code 48.
+# disabled: accept without running the filtering pipeline.
+server_status = "active"
+
+# Final action after a technically accepted article:
+# accept  - accept normally;
+# save    - save a diagnostic copy and accept;
+# discard - return INN's special DROP response;
+# reject  - reject using the default-policy code.
+action_on_accept = "accept"
+
+# Final action after a technical rejection.  Keep this as reject when the
+# independent text/binary save_rejected policies should decide what is written.
+# Setting save here deliberately saves every technical rejection in both worlds.
+action_on_reject = "reject"
+
+# true returns the specific reason text to the poster.  false returns the generic
+# "Message rejected" while preserving full details in SQLite and syslog.
+show_error_code = true
+
+[logging]
+# Cumulative verbosity scale:
+# 1 final result only
+# 2 posting identity and groups
+# 3 trusted profile and pipeline decisions
+# 4 structural checks
+# 5 header transformations
+# 6 SQLite and rate-limit activity
+# 7 TOR/RBL/URIBL/SURBL activity
+# 8 rule matches and scores
+# 9 every internal step and timing
+#
+# Levels 1, 2-3 and 4-9 map to news.notice, news.info and news.debug.  Warnings,
+# errors and critical failures are always emitted regardless of verbosity.
+verbosity = 3
+log_accepted = true
+log_rejected = true
+include_timing = true
+include_rule_ids = true
+
+[resilience]
+# Unexpected internal exceptions can fail open or fail closed.  "accept" is
+# appropriate during audit.  Security-sensitive deployments may choose reject
+# after audit results have been validated against site traffic.
+emergency_action = "accept"
+
+# A missing optional runtime module disables only its safely degradable feature
+# and writes a clear news.err record.  Last-known-good and embedded emergency
+# fallback are mandatory safety properties rather than switches that an
+# accidental edit can turn off.  The installer normally prevents missing
+# dependencies in the first place.
+
+# Source mtimes are inspected no more often than this interval per nnrpd process.
+reload_interval_seconds = 30
+
+[paths]
+# The installer rewrites these defaults using innconfval or command-line
+# overrides.  They remain ordinary configuration so non-standard INN layouts
+# can be represented without editing the source code.
+state_dir = "/var/lib/news/postfilter-ng"
+saved_dir = "/var/spool/news/postfilter-ng/rejected"
+active_file = "/var/lib/news/active"
+html_output = "/var/www/html/postfilter/index.html"
+public_suffix_file = "/etc/news/postfilter-ng/public_suffix_list.dat"
+sendmail = "/usr/lib/news/bin/innmail"
+
+[keys]
+# All four files are generated during setup from /dev/urandom, even when the
+# corresponding feature is disabled.  They have independent purposes and must
+# never be replaced by one common key.  Upgrades never overwrite existing keys.
+tor_header = "/etc/news/postfilter-ng/keys/tor-header-encryption.key"
+header_pseudonym = "/etc/news/postfilter-ng/keys/header-pseudonym.key"
+html_report = "/etc/news/postfilter-ng/keys/html-report-privacy.key"
+database_privacy = "/etc/news/postfilter-ng/keys/database-privacy.key"
+
+[database]
+# SQLite replaces access.log, legal.log and the old MySQL backend.  The database
+# MUST reside on a local filesystem; do not place WAL mode on NFS, SMB or SSHFS.
+enabled = true
+path = "/var/lib/news/postfilter-ng/postfilter.sqlite3"
+
+# accept: continue without persistent/rate-limit features after a failure.
+# reject: persistence is mandatory; reject until SQLite is available.
+# disable: stop retrying SQLite for the lifetime of this nnrpd process.
+on_failure = "accept"
+busy_timeout_ms = 5000
+synchronous = "FULL"
+
+[database.privacy]
+# This database is private and replaces legal.log, so the default keeps identity
+# values in clear text for direct long-term administrative/police queries.
+#
+# plain:     store the original value; fastest and directly searchable.
+# hmac:      store a stable non-reversible pseudonym.
+# encrypted: store a reversible authenticated token.  Stable hidden lookup
+#            columns still support rate limiting, but direct SQL searches by
+#            plaintext require postfilterctl assistance.  Every event also
+#            stores the mode that created it, so old encrypted rows remain
+#            decodable after a future configuration change.
+#
+# Hidden equality-lookup columns always use the dedicated secret key, regardless
+# of this display-storage mode.  Rate limits and postfilterctl query --ip/--user
+# therefore remain stable if this value changes years later.
+identity_mode = "plain"
+key_file = "/etc/news/postfilter-ng/keys/database-privacy.key"
+
+[retention]
+# article_events and rule_hits replace legal.log and are NEVER deleted
+# automatically.  "forever" is the default.  Deletion is possible only through
+# an explicit postfilterctl purge command with --confirm, and that action is
+# itself recorded in administrative_actions.
+events = "forever"
+rule_hits = "forever"
+saved_articles = "forever"
+
+# Provider health is operational telemetry rather than legal history and may be
+# cleaned by postfilterctl maintenance.
+provider_health_seconds = 604800
+
+[modules]
+# Global feature switches.  A trusted profile can skip selected checks for a
+# particular article without modifying these settings.
+style = true
+content = true
+groups = true
+dates = true
+headers = true
+access = true
+attachments = true
+badwords = true
+banlist = true
+rbl = true
+uribl = true
+surbl = true
+tor = true
+custom = false
+userdb = false
+
+[limits]
+# Shared fallback limits.  Text/binary profiles override article byte sizes.
+# Other values remain shared unless repeated in an article-type limits table.
+max_body_size = 52000
+max_header_size = 8192
+max_total_size = 64000
+max_header_length = 4096
+
+# Newsgroup/followup limits.
+max_crosspost = 5
+max_followup = 3
+max_fup_no_crosspost = 3
+max_groups_difference = 5
+max_hierarchies_post = 2
+max_hierarchies_followup = 1
+
+# Set max_line_length to zero to disable the line-length check.  Ratios range
+# from 0.0 to 1.0.  Unlike the historical code, blank/empty checks are active.
+max_line_length = 0
+max_quoted_ratio = 0.999
+max_blank_ratio = 0.90
+max_empty_ratio = 0.90
+
+# Work budgets protect nnrpd from deliberately expensive articles.
+max_urls_to_check = 20
+max_unique_domains = 10
+max_rule_evaluations = 2000
+
+# Zero means inspect the entire body.  A positive value truncates only expensive
+# scans (badwords, URL extraction, HTML/yEnc/uuencode); absolute size checks still
+# see the complete body.  Keep this >= max_body_size for complete inspection.
+max_body_scan_bytes = 1048576
+
+# Per-process DNS cache bound.  Oldest entries are discarded when exceeded.
+dns_cache_max_entries = 2000
+
+# default_multipost_limit may be overridden by a matching access profile.
+# absolute_multipost_limit is a hard ceiling no profile can exceed.  Zero disables
+# the corresponding limit.
+default_multipost_limit = 2
+absolute_multipost_limit = 100
+
+[timeouts]
+future_grace_seconds = 3600
+too_old_seconds = 259200
+
+# Per-query and whole-article DNS budgets.  The smaller remaining article budget
+# always wins.
+dns_query_seconds = 2
+dns_total_seconds = 10
+
+# Complete pipeline budget.  Zero disables the deadline.
+max_processing_ms = 1500
+
+# accept: stop remaining checks and fail open when the deadline is exhausted.
+# reject: reject with the processing-timeout internal code.
+on_processing_timeout = "accept"
+
+[headers]
+allow_control_cancel = false
+allow_supersedes = false
+allow_mail_headers = false
+
+# Shared content defaults used when a type profile omits the corresponding
+# value. Explicit article_types.text.content and article_types.binary.content
+# values take precedence.
+allow_html = false
+allow_uuencode = false
+allow_yenc = false
+check_distribution = true
+check_groups_existence = true
+
+force_default_organization = true
+organization = "bofh.team Usenet service"
+
+delete_posting_date = false
+delete_user_agent = false
+delete_x_no_archive = true
+delete_x_trace = true
+delete_mail_headers = true
+delete_custom_headers = false
+include_new_headers = true
+
+[headers.sender]
+# Sender is meaningful and is preserved by default.  It may identify the actual
+# sending agent when different from From, and clients may use it when presenting
+# reply information.  Privacy transformation is therefore strictly opt-in.
+#
+# preserve: leave exactly as supplied.
+# delete: remove the header.
+# replace: use replacement verbatim.
+# pseudonymize: produce pf-<HMAC>@pseudonym_domain.
+mode = "preserve"
+replacement = ""
+pseudonym_domain = "postfilter.invalid"
+
+[headers.posting_host]
+# Controls posting-host in Injection-Info and the older NNTP-Posting-Host header.
+mode = "pseudonymize"
+replacement = ""
+
+[headers.posting_account]
+# Controls posting-account in Injection-Info independently from Sender.
+mode = "pseudonymize"
+replacement = ""
+
+[headers.path]
+# Path cannot simply disappear before INN stores the article.  delete therefore
+# means replace with not-for-mail.  replace uses the literal below; pseudonymize
+# prepends a stable HMAC identifier.
+mode = "replace"
+replacement = "not-for-mail"
+
+[access]
+# public: always identify clients by IP/domain.
+# auth:   always identify by nnrpd user id.
+# both:   empty/synthetic public ids use IP/domain; other ids use userid.
+server_type = "both"
+enable_domain_check = true
+
+# Keep rate-limit and multipost history separated between text and binary
+# articles.  This prevents one 10 MiB segment from consuming a text user's byte
+# allowance and lets article-type-scoped access profiles express different
+# policies.  Set false only when one combined quota is intentionally desired.
+separate_counters_by_article_type = true
+
+# An empty or undefined nnrpd user is ALWAYS public.  Add synthetic identities
+# assigned by readers.conf here.  The optional regex is empty by default to avoid
+# accidental classification of authenticated users as public.
+public_user_ids = ["anonymous", "public"]
+public_user_pattern = ""
+
+# body: body only.
+# simple: Subject + body.
+# complex: Newsgroups + Subject + body.
+# all: Newsgroups + From + Followup-To + Subject + body.
+article_digest_mode = "simple"
+period_seconds = 86400
+short_period_seconds = 600
+
+# Limit value zero is valid and means no events of that metric are permitted.
+# Each identity class has its own expanded table below so every limit has a
+# stable key and can be reviewed or changed independently.
+
+[access.public_limits]
+# Long-period accepted-article allowance for one public client IP.
+max_articles = 35
+# Short-period burst allowance for one public client IP.
+max_short_articles = 15
+# Long-period rejected-article allowance before further posts are blocked.
+max_total_errors = 10
+# Short-period rejected-article burst allowance.
+max_short_errors = 5
+# Bytes accepted during the short period.  This is a cumulative quota, not the
+# maximum size of one article; per-article sizes live under article_types.*.
+max_short_size = 32000
+# Bytes accepted during the long period.
+max_total_size = 2000000
+# Sum of Newsgroups targets during the long period.
+max_total_groups = 25
+# Sum of Newsgroups targets during the short period.
+max_short_groups = 15
+# Sum of Followup-To targets during the long period.
+max_total_followups = 10
+# Sum of Followup-To targets during the short period.
+max_short_followups = 5
+# Number of matching article digests tolerated during the long period.
+multipost = 1
+
+[access.domain_limits]
+# Domain quotas are consulted only when enable_domain_check is true and a
+# meaningful reverse/registered domain is available for the client.
+max_articles = 100
+max_short_articles = 50
+max_total_errors = 15
+max_short_errors = 5
+max_short_size = 32000
+max_total_size = 1500000
+max_total_groups = 100
+max_short_groups = 25
+max_total_followups = 25
+max_short_followups = 15
+multipost = 3
+
+[access.authenticated_limits]
+# Authenticated identities are counted by the nnrpd user id rather than by IP.
+# This allows roaming users to retain one coherent quota across connections.
+max_articles = 350
+max_short_articles = 100
+max_total_errors = 100
+max_short_errors = 30
+max_short_size = 32000
+max_total_size = 1500000
+max_total_groups = 100
+max_short_groups = 50
+max_total_followups = 60
+max_short_followups = 15
+multipost = 3
+
+[badwords]
+# A score equal to the threshold is accepted; a greater score rejects.  Zero
+# therefore rejects any positive score, matching the strict historical setup.
+max_subject_score = 0
+max_body_score = 0
+
+[banlist]
+# Default ceiling for every named score variable.  A set_score_limit action may
+# define a separate lower or higher limit for one variable.
+max_score = 10
+
+# reject: an output action failure rejects with historical code 35.
+# continue: log the failure and continue filtering.
+side_effect_failure = "reject"
+
+[custom]
+# Disabled by modules.custom above.  When enabled, the module must define:
+#     Postfilter::Local::custom_rules($context)
+module_file = "/etc/news/postfilter-ng/custom.pm"
+
+# accept: missing file/runtime error logs news.err and fails open.
+# reject: reject with the custom-rule historical code.
+on_error = "accept"
+
+[userdb]
+# When enabled, GROUP.dat files contain one allowed From mailbox per line.
+directory = "/etc/news/postfilter-ng/userdb"
+
+[saved_articles]
+# flat or year/month/day.  The filename itself always remains:
+# <unix.microseconds>.<symbolic-code>.<message-id-hash>.post
+directory_layout = "year/month/day"
+
+# continue or reject if the standard saved article cannot be written.
+on_failure = "continue"
+
+[tor]
+enabled = true
+
+# all queries the complete TOR-node list; exit selects only exit nodes.
+node_scope = "all"
+dns_zone_all = "tor.dan.me.uk"
+dns_zone_exit = "torexit.dan.me.uk"
+positive_codes = ["127.0.0.100"]
+refused_codes = []
+
+# Local networks through which an operator intentionally routes TOR clients.
+# Use real CIDR values, never regexes.  The old hurried '172.16' check becomes a
+# precise network.  Narrow it if only one interface subnet is used.
+local_tor_networks = ["172.16.0.0/12"]
+
+# allow: identify TOR internally but add no policy decision.
+# mark:  add the configured TOR header.
+# reject: reject with historical code 50.
+action = "mark"
+on_error = "accept"
+failure_threshold = 5
+cooldown_seconds = 300
+positive_cache_seconds = 3600
+negative_cache_seconds = 300
+
+[tor.header]
+# none:      X-Postfilter-TOR: yes
+# plain:     publish the client IP.
+# encrypted: publish a reversible authenticated token.  The old misleading
+#            names sha256/crypt are accepted only as deprecated aliases.
+mode = "encrypted"
+name = "X-Postfilter-TOR"
+key_file = "/etc/news/postfilter-ng/keys/tor-header-encryption.key"
+
+[html_report]
+enabled = true
+title = "Postfilter-NG statistics"
+hours = 168
+output_file = "/var/www/html/postfilter/index.html"
+
+# The CSS file is read and embedded into the generated page.  Embedding keeps
+# the published report self-contained while allowing the operator to customise
+# presentation without editing Perl code.  If this file is unreadable, report
+# generation logs a warning and uses a small built-in fallback stylesheet.
+stylesheet_file = "/etc/news/postfilter-ng/report.css"
+
+[html_report.privacy]
+# plain, redacted, hmac or encrypted.  This protects the public report and is
+# independent of private SQLite storage.
+identity_mode = "hmac"
+key_file = "/etc/news/postfilter-ng/keys/html-report-privacy.key"
+
+[new_headers]
+# Example public operational headers.  Remove or replace values for your site.
+X-Complaints-To = "abuse@bofh.team"
+X-Postfilter = "Postfilter-NG 2026.07.5-rc2"

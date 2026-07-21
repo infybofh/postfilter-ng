@@ -1,0 +1,6 @@
+# Perl::Critic is advisory during release-candidate testing.  The selected severity catches
+# accidental globals, shell opens and other high-risk constructs without forcing
+# stylistic policies that would make an INN hook unnecessarily ceremonial.
+severity = 3
+verbose = 8
+exclude = ProhibitStringyEval ProhibitAccessOfPrivateData RequirePodSections

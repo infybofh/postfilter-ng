@@ -1,0 +1,9 @@
+[Unit]
+Description=Generate Postfilter-NG static statistics report
+After=network.target
+
+[Service]
+Type=oneshot
+User=news
+Group=news
+ExecStart=/usr/local/sbin/postfilterctl report-generate

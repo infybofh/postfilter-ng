@@ -1,0 +1,12 @@
+# Release formatting policy.  The project intentionally favours readability
+# over compactness because filtering policy must be reviewable by operators.
+-l=100
+-i=4
+-ci=4
+-ce
+-bar
+-boc
+-boc
+-nsfs
+-nolq
+-wbb="% + - * / x != == >= <= =~ !~ < > | & **= += *= &= <<= &&= -= /= |= >>= ||= //= .= %= ^= x="

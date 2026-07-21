@@ -1,0 +1,3 @@
+/* Optional external stylesheet for custom deployments.  The generated report
+ * also contains a compact embedded stylesheet so it remains self-contained. */
+body { font-family: system-ui, sans-serif; }

@@ -1,0 +1,998 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+=head1 NAME
+
+install-postfilter - Transactional installer for Postfilter-NG.
+
+=head1 SUPPORTED LAYOUTS
+
+The installer is written in Perl and avoids distribution-specific package
+commands.  It works with Debian/Ubuntu, FreeBSD, OpenBSD and custom INN builds as
+long as the required Perl modules are already installed.  Paths are discovered
+with C<innconfval> and can be overridden individually.
+
+=head1 KEY CREATION
+
+Every installation creates all four purpose-specific keys from C</dev/urandom>,
+regardless of whether the corresponding feature is enabled:
+
+  tor-header-encryption.key
+  header-pseudonym.key
+  html-report-privacy.key
+  database-privacy.key
+
+Existing keys are never overwritten by install or upgrade.  Each new key
+contains 64 random bytes and is created with O_EXCL before ownership/permissions
+are applied.
+
+=head1 TRANSACTION MODEL
+
+Code is copied to a staging directory, syntax-checked and atomically activated.
+An existing prefix is renamed to a rollback directory until configuration
+validation and SQLite migration finish.  Existing operator configuration is
+preserved unless C<--force-config> is explicitly supplied.
+
+=cut
+
+use FindBin qw($RealBin);
+use File::Basename qw(dirname);
+use File::Copy qw(copy);
+use File::Path qw(make_path remove_tree);
+use Fcntl qw(:DEFAULT);
+use Getopt::Long qw(GetOptions);
+
+my %option = (
+    config_dir     => '/etc/news/postfilter-ng',
+    dry_run        => 0,
+    force          => 0,
+    force_config   => 0,
+    group           => 'news',
+    html_dir        => '/var/www/html/postfilter',
+    prefix          => '/usr/local/lib/postfilter-ng',
+    saved_dir       => '/var/spool/news/postfilter-ng/rejected',
+    state_dir       => '/var/lib/news/postfilter-ng',
+    upgrade         => 0,
+    use_innconfval  => 1,
+    user            => 'news',
+);
+
+my $state_was_overridden  = grep { /^--state-dir(?:=|$)/ } @ARGV;
+my $saved_was_overridden  = grep { /^--saved-dir(?:=|$)/ } @ARGV;
+my $config_was_overridden = grep { /^--config-dir(?:=|$)/ } @ARGV;
+my $active_was_overridden = grep { /^--active-file(?:=|$)/ } @ARGV;
+my $sendmail_was_overridden = grep { /^--sendmail(?:=|$)/ } @ARGV;
+
+GetOptions(
+    'active-file=s'          => \$option{active_file},
+    'config-dir=s'           => \$option{config_dir},
+    'ctl-bin=s'              => \$option{ctl_bin},
+    'dry-run!'               => \$option{dry_run},
+    'filter-dir=s'           => \$option{filter_dir},
+    'force!'                 => \$option{force},
+    'force-config!'          => \$option{force_config},
+    'group=s'                => \$option{group},
+    'help!'                  => \$option{help},
+    'html-dir=s'             => \$option{html_dir},
+    'innconfval=s'           => \$option{innconfval},
+    'keep-config!'           => \$option{keep_config},
+    'no-innconfval'          => sub { $option{use_innconfval} = 0 },
+    'prefix=s'               => \$option{prefix},
+    'saved-dir=s'            => \$option{saved_dir},
+    'sendmail=s'             => \$option{sendmail},
+    'skip-dependency-check!' => \$option{skip_dependency_check},
+    'state-dir=s'            => \$option{state_dir},
+    'uninstall!'             => \$option{uninstall},
+    'upgrade!'               => \$option{upgrade},
+    'use-innconfval!'        => \$option{use_innconfval},
+    'user=s'                 => \$option{user},
+) or _usage(2);
+
+_usage(0) if $option{help};
+
+my $source_root = dirname($RealBin);
+_resolve_inn_paths();
+_apply_fallback_paths();
+
+if ($option{uninstall}) {
+    _uninstall();
+    exit 0;
+}
+
+_print_plan();
+
+die "This installer must run as root, or use --dry-run.\n"
+    if $> != 0 && !$option{dry_run};
+
+_check_dependencies() unless $option{skip_dependency_check};
+
+my $staging_directory = "$option{prefix}.stage.$$";
+my $backup_directory  = "$option{prefix}.backup.$$";
+my $code_activated = 0;
+
+_execute(sub {
+    remove_tree($staging_directory) if -e $staging_directory;
+    make_path($staging_directory, { mode => 0755 });
+    _copy_tree($source_root, $staging_directory);
+    _compile_tree($staging_directory);
+});
+
+_execute(sub {
+    if (-e $option{prefix}) {
+        die "$option{prefix} exists; use --upgrade or --force\n"
+            unless $option{upgrade} || $option{force};
+        rename $option{prefix}, $backup_directory
+            or die "Unable to back up $option{prefix}: $!";
+    }
+
+    rename $staging_directory, $option{prefix}
+        or die "Unable to activate $staging_directory: $!";
+    $code_activated = 1;
+});
+
+_execute(sub {
+    _create_runtime_directories();
+    my $main_installed = _install_configuration_files();
+    _replace_default_paths("$option{config_dir}/postfilter.toml")
+        if $main_installed;
+
+    # Parse the final operator configuration so custom key paths are respected.
+    # All four keys are created even if their features are currently disabled.
+    my $key_paths = _configured_key_paths(
+        "$option{config_dir}/postfilter.toml"
+    );
+    for my $purpose (sort keys %{$key_paths}) {
+        _create_random_key($key_paths->{$purpose}, $purpose);
+    }
+
+    # Create the independently configured text and binary diagnostic trees at
+    # install time.  SavedArticle also creates deeper date directories lazily,
+    # but these top-level paths make ownership and operator intent visible
+    # immediately after setup.
+    my $saved_subdirectories = _configured_saved_subdirectories(
+        "$option{config_dir}/postfilter.toml"
+    );
+    for my $article_type (sort keys %{$saved_subdirectories}) {
+        make_path(
+            "$option{saved_dir}/$saved_subdirectories->{$article_type}",
+            { mode => 0750 },
+        );
+    }
+
+    _install_command_links();
+    _set_configuration_ownership($option{config_dir}, $option{group});
+    _chown_tree(
+        $option{state_dir}, $option{user}, $option{group}, 0750, 0640,
+    );
+    _chown_tree(
+        $option{saved_dir}, $option{user}, $option{group}, 0750, 0640,
+    );
+    _chown_tree(
+        $option{html_dir}, $option{user}, $option{group}, 0755, 0644,
+    );
+});
+
+_execute(sub {
+    local $ENV{POSTFILTER_CONFIG} =
+        "$option{config_dir}/postfilter.toml";
+    local $ENV{POSTFILTER_STATE_DIR} = $option{state_dir};
+
+    my @base_command = (
+        $^X,
+        "-I$option{prefix}/lib",
+        "$option{prefix}/bin/postfilterctl",
+        '--config',
+        "$option{config_dir}/postfilter.toml",
+        '--state-dir',
+        $option{state_dir},
+    );
+
+    _run_as_runtime_user(@base_command, 'check-config')
+        or die "Configuration validation failed for runtime user $option{user}\n";
+    _run_as_runtime_user(@base_command, 'db-migrate')
+        or die "SQLite initialisation failed for runtime user $option{user}\n";
+
+    # Normalise ownership and modes after initialization as a final safety net
+    # for upgrades from older installers that created root-owned runtime files.
+    _chown_tree(
+        $option{state_dir}, $option{user}, $option{group}, 0750, 0640,
+    );
+    _chown_tree(
+        $option{saved_dir}, $option{user}, $option{group}, 0750, 0640,
+    );
+});
+
+_execute(sub {
+    remove_tree($backup_directory) if -d $backup_directory;
+});
+
+if ($option{dry_run}) {
+    print "Dry-run complete; no files were changed.\n";
+}
+else {
+    print "Installation complete.\n";
+    print "The supplied policy remains in audit mode until the operator enables enforce.\n";
+    _print_activation_notice();
+}
+exit 0;
+
+=head2 Path discovery
+
+=cut
+
+# Function: _resolve_inn_paths
+# Purpose: Uses innconfval to discover filter, configuration, database, spool, binary, and active
+#          paths.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _resolve_inn_paths {
+    return unless $option{use_innconfval};
+
+    $option{innconfval} //= _find_executable(
+        '/usr/lib/news/bin/innconfval',
+        '/usr/local/news/bin/innconfval',
+        '/usr/local/libexec/news/innconfval',
+        '/usr/local/bin/innconfval',
+    );
+    return unless $option{innconfval};
+
+    $option{filter_dir} //= _inn_value($option{innconfval}, 'pathfilter');
+
+    my $path_etc = _inn_value($option{innconfval}, 'pathetc');
+    if ($path_etc && !$config_was_overridden) {
+        $option{config_dir} = "$path_etc/postfilter-ng";
+    }
+
+    my $path_database = _inn_value($option{innconfval}, 'pathdb');
+    if ($path_database && !$state_was_overridden) {
+        $option{state_dir} = "$path_database/postfilter-ng";
+    }
+    if ($path_database && !$active_was_overridden) {
+        $option{active_file} = "$path_database/active";
+    }
+
+    my $path_spool = _inn_value($option{innconfval}, 'pathspool');
+    if ($path_spool && !$saved_was_overridden) {
+        $option{saved_dir} = "$path_spool/postfilter-ng/rejected";
+    }
+
+    my $path_binary = _inn_value($option{innconfval}, 'pathbin');
+    if ($path_binary && !$sendmail_was_overridden) {
+        $option{sendmail} = "$path_binary/innmail";
+    }
+
+    return;
+}
+
+# Function: _apply_fallback_paths
+# Purpose: Fills only unresolved installer paths with portable defaults.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _apply_fallback_paths {
+    $option{filter_dir} //= '/etc/news/filter';
+    $option{active_file} //= '/var/lib/news/active';
+    $option{sendmail} //= '/usr/lib/news/bin/innmail';
+    $option{ctl_bin} //= '/usr/local/sbin/postfilterctl';
+    return;
+}
+
+# Function: _find_executable
+# Purpose: Returns the first executable candidate path.
+# Parameters: $binary, $key
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _find_executable {
+    for my $candidate (@_) {
+        return $candidate if -x $candidate;
+    }
+    return;
+}
+
+# Function: _inn_value
+# Purpose: Runs innconfval without a shell and returns one trimmed setting.
+# Parameters: $binary, $key
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _inn_value {
+    my ($binary, $key) = @_;
+
+    open my $handle, '-|', $binary, $key or return;
+    my $value = <$handle>;
+    close $handle;
+    return unless defined $value;
+
+    chomp $value;
+    $value =~ s/^\s+|\s+$//g;
+    return $value;
+}
+
+=head2 Validation and staging
+
+=cut
+
+# Function: _check_dependencies
+# Purpose: Verifies every required runtime Perl module before modifying the installation.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _check_dependencies {
+    my @required = (
+        ['Crypt::Mode::CBC', 'CryptX or the operating-system CryptX package'],
+        ['Date::Parse',      'TimeDate'],
+        ['DBD::SQLite',      'DBD::SQLite'],
+        ['DBI',              'DBI'],
+        ['Net::DNS',         'Net::DNS'],
+        ['TOML::Tiny',       'TOML::Tiny'],
+    );
+
+    my @missing;
+    for my $requirement (@required) {
+        my ($module, $package_hint) = @{$requirement};
+        my $available = system($^X, "-M$module", '-e', '1') == 0;
+        push @missing, "$module ($package_hint)" unless $available;
+    }
+
+    if (@missing) {
+        die "Missing required Perl modules: "
+            . join(', ', @missing)
+            . "\nInstall distribution packages or CPAN modules before continuing.\n";
+    }
+
+    return;
+}
+
+# Function: _copy_tree
+# Purpose: Recursively copies release files while preserving executable modes and symlinks.
+# Parameters: $source, $destination
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _copy_tree {
+    my ($source, $destination) = @_;
+
+    opendir my $directory, $source
+        or die "Unable to open $source: $!";
+
+    for my $name (readdir $directory) {
+        next if $name eq '.' || $name eq '..';
+        next if $name eq '.git';
+
+        my $source_path = "$source/$name";
+        my $destination_path = "$destination/$name";
+
+        if (-d $source_path) {
+            make_path($destination_path, { mode => 0755 });
+            _copy_tree($source_path, $destination_path);
+        }
+        elsif (-l $source_path) {
+            my $target = readlink($source_path);
+            symlink $target, $destination_path
+                or die "Unable to recreate symlink $destination_path: $!";
+        }
+        elsif (-f $source_path) {
+            copy($source_path, $destination_path)
+                or die "Unable to copy $source_path: $!";
+            chmod((stat($source_path))[2] & 07777, $destination_path);
+        }
+    }
+
+    closedir $directory;
+    return;
+}
+
+# Function: _compile_tree
+# Purpose: Runs perl -c on every installed module and executable in the staging tree.
+# Parameters: $directory
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _compile_tree {
+    my ($directory) = @_;
+
+    my @files = (
+        glob("$directory/lib/Postfilter/*.pm"),
+        glob("$directory/lib/Postfilter/Checks/*.pm"),
+        "$directory/postfilter",
+        "$directory/bin/postfilterctl",
+    );
+
+    for my $file (@files) {
+        system($^X, "-I$directory/lib", '-c', $file) == 0
+            or die "Compilation failed: $file\n";
+    }
+
+    return;
+}
+
+=head2 Runtime directories, configuration and keys
+
+=cut
+
+# Function: _create_runtime_directories
+# Purpose: Creates documented configuration, key, state, saved-article, userdb, and HTML
+#          directories.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _create_runtime_directories {
+    make_path($option{config_dir}, { mode => 0750 });
+    make_path("$option{config_dir}/conf.d", { mode => 0750 });
+    make_path("$option{config_dir}/keys", { mode => 0750 });
+    make_path("$option{config_dir}/userdb", { mode => 0750 });
+    make_path($option{state_dir}, { mode => 0750 });
+    make_path($option{saved_dir}, { mode => 0750 });
+    make_path($option{html_dir}, { mode => 0755 });
+    return;
+}
+
+# Function: _install_configuration_files
+# Purpose: Installs main/fragments/assets while preserving operator files on upgrade.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _install_configuration_files {
+    my $main_installed = _install_config_file(
+        "$source_root/conf/postfilter.toml",
+        "$option{config_dir}/postfilter.toml",
+    );
+
+    for my $source (glob("$source_root/conf/conf.d/*.toml")) {
+        my ($name) = $source =~ m{/([^/]+)$};
+        _install_config_file(
+            $source,
+            "$option{config_dir}/conf.d/$name",
+        );
+    }
+
+    for my $name (qw(custom.pm custom.pm.example README.md)) {
+        next unless -f "$source_root/conf/$name";
+        _install_config_file(
+            "$source_root/conf/$name",
+            "$option{config_dir}/$name",
+        );
+    }
+
+    _install_config_file(
+        "$source_root/share/public_suffix_list.dat",
+        "$option{config_dir}/public_suffix_list.dat",
+    );
+
+    if (-f "$source_root/share/static/report.css") {
+        _install_config_file(
+            "$source_root/share/static/report.css",
+            "$option{config_dir}/report.css",
+        );
+    }
+
+    return $main_installed;
+}
+
+# Function: _install_config_file
+# Purpose: Copies one configuration asset only when policy permits replacement.
+# Parameters: $source, $destination
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _install_config_file {
+    my ($source, $destination) = @_;
+
+    if (-e $destination && !$option{force_config}) {
+        print "Preserving existing configuration $destination\n";
+        return 0;
+    }
+
+    copy($source, $destination)
+        or die "Unable to copy $source to $destination: $!";
+    chmod 0640, $destination;
+    return 1;
+}
+
+# Function: _replace_default_paths
+# Purpose: Rewrites shipped path defaults to detected or explicitly supplied installation paths.
+# Parameters: $path
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _replace_default_paths {
+    my ($path) = @_;
+
+    open my $input, '<', $path or die "Unable to read $path: $!";
+    local $/;
+    my $text = <$input>;
+    close $input;
+
+    $text =~ s{/var/lib/news/postfilter-ng}{$option{state_dir}}g;
+    $text =~ s{/var/spool/news/postfilter-ng/rejected}{$option{saved_dir}}g;
+    $text =~ s{/var/www/html/postfilter/index.html}{$option{html_dir}/index.html}g;
+    $text =~ s{/var/lib/news/active}{$option{active_file}}g;
+    $text =~ s{/usr/lib/news/bin/innmail}{$option{sendmail}}g;
+    $text =~ s{/etc/news/postfilter-ng}{$option{config_dir}}g;
+
+    open my $output, '>', $path or die "Unable to write $path: $!";
+    print {$output} $text;
+    close $output;
+    return;
+}
+
+# Function: _configured_key_paths
+# Purpose: Loads main TOML plus fragments and resolves all four effective purpose-specific key
+#          paths.
+# Parameters: $configuration_path
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _configured_key_paths {
+    my ($configuration_path) = @_;
+
+    my $configuration = _load_installer_configuration($configuration_path);
+    my $keys = $configuration->{keys} // {};
+
+    return {
+        database_privacy =>
+            $configuration->{database}{privacy}{key_file}
+            // $keys->{database_privacy}
+            // "$option{config_dir}/keys/database-privacy.key",
+        header_pseudonym =>
+            $keys->{header_pseudonym}
+            // "$option{config_dir}/keys/header-pseudonym.key",
+        html_report =>
+            $configuration->{html_report}{privacy}{key_file}
+            // $keys->{html_report}
+            // "$option{config_dir}/keys/html-report-privacy.key",
+        tor_header =>
+            $configuration->{tor}{header}{key_file}
+            // $keys->{tor_header}
+            // "$option{config_dir}/keys/tor-header-encryption.key",
+    };
+}
+
+# Function: _configured_saved_subdirectories
+# Purpose: Resolves and validates the text and binary diagnostic directory names.
+# Parameters: $configuration_path
+# Operational notes: Only one safe path component is accepted for each world; a
+#                    value capable of escaping saved_dir aborts installation.
+sub _configured_saved_subdirectories {
+    my ($configuration_path) = @_;
+
+    my $configuration = _load_installer_configuration($configuration_path);
+    my %subdirectory;
+
+    for my $article_type (qw(text binary)) {
+        my $value =
+            $configuration->{article_types}{$article_type}{save_rejected}{subdirectory}
+            // $article_type;
+
+        die "Unsafe saved-article subdirectory for $article_type: $value\n"
+            unless !ref($value)
+            && $value =~ /\A[A-Za-z0-9_.-]+\z/
+            && $value ne '.'
+            && $value ne '..';
+
+        $subdirectory{$article_type} = $value;
+    }
+
+    return \%subdirectory;
+}
+
+# Function: _load_installer_configuration
+# Purpose: Loads main TOML plus sorted fragments for installer path/key decisions.
+# Parameters: $configuration_path
+# Operational notes: This parser is used only after dependency checks and before
+#                    activation validation; malformed TOML aborts the install phase.
+sub _load_installer_configuration {
+    my ($configuration_path) = @_;
+
+    require TOML::Tiny;
+
+    my @configuration_files = ($configuration_path);
+    my $fragment_directory = dirname($configuration_path) . '/conf.d';
+    if (-d $fragment_directory) {
+        push @configuration_files,
+            sort glob("$fragment_directory/*.toml");
+    }
+
+    my $configuration = {};
+    for my $path (@configuration_files) {
+        open my $handle, '<:raw', $path
+            or die "Unable to read $path: $!";
+        local $/;
+        my $text = <$handle>;
+        close $handle;
+
+        my $fragment = TOML::Tiny::from_toml($text);
+        die "Unable to parse installer configuration in $path"
+            unless ref($fragment) eq 'HASH';
+        _merge_configuration_hash($configuration, $fragment);
+    }
+
+    return $configuration;
+}
+
+# Function: _merge_configuration_hash
+# Purpose: Recursively merges installer-only configuration tables used to resolve key paths.
+# Parameters: $destination, $source
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _merge_configuration_hash {
+    my ($destination, $source) = @_;
+
+    for my $key (keys %{$source}) {
+        if (
+            ref($source->{$key}) eq 'HASH'
+            && ref($destination->{$key}) eq 'HASH'
+        ) {
+            _merge_configuration_hash(
+                $destination->{$key},
+                $source->{$key},
+            );
+            next;
+        }
+
+        $destination->{$key} = $source->{$key};
+    }
+
+    return $destination;
+}
+
+=head2 _create_random_key($path, $purpose)
+
+Creates exactly 64 bytes from /dev/urandom.  O_EXCL makes concurrent installers
+safe and guarantees that an existing key is never silently replaced.
+
+=cut
+
+# Function: _create_random_key
+# Purpose: Creates and verifies one non-overwritten 64-byte key from /dev/urandom.
+# Parameters: $path, $purpose
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _create_random_key {
+    my ($path, $purpose) = @_;
+
+    if (-f $path) {
+        my $size = -s $path;
+        die "Existing key $path for $purpose is shorter than 32 bytes\n"
+            if !defined($size) || $size < 32;
+        print "Preserving existing key $path ($purpose)\n";
+        return;
+    }
+
+    make_path(dirname($path), { mode => 0750 }) unless -d dirname($path);
+
+    sysopen(
+        my $key_handle,
+        $path,
+        O_WRONLY | O_CREAT | O_EXCL,
+        0640,
+    ) or die "Unable to create key $path: $!";
+    binmode $key_handle;
+
+    open my $random, '<:raw', '/dev/urandom'
+        or die "Unable to open /dev/urandom: $!";
+
+    my $key_material = '';
+    while (length($key_material) < 64) {
+        my $read = read(
+            $random,
+            my $chunk,
+            64 - length($key_material),
+        );
+        die "Unable to read /dev/urandom: $!" unless defined $read;
+        die "/dev/urandom returned EOF" if $read == 0;
+        $key_material .= $chunk;
+    }
+
+    close $random or die "Unable to close /dev/urandom: $!";
+    print {$key_handle} $key_material
+        or die "Unable to write key $path: $!";
+    close $key_handle
+        or die "Unable to close key $path: $!";
+
+    print "Created key $path ($purpose) from /dev/urandom\n";
+    return;
+}
+
+=head2 Activation and ownership
+
+=cut
+
+# Function: _install_command_links
+# Purpose: Creates the review-only INN hook candidate and the postfilterctl command link.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: The active filter_nnrpd.pl hook is never modified.  The newsmaster activates
+#                    Postfilter-NG only after configuration and audit verification.
+sub _install_command_links {
+    make_path($option{filter_dir}, { mode => 0755 });
+
+    my $candidate_link = "$option{filter_dir}/filter_nnrpd.pl.ng";
+    if (-e $candidate_link || -l $candidate_link) {
+        if (-l $candidate_link) {
+            unlink $candidate_link
+                or die "Unable to replace $candidate_link: $!";
+        }
+        elsif ($option{force} || $option{upgrade}) {
+            rename $candidate_link, "$candidate_link.pre-postfilter-ng.$$"
+                or die "Unable to back up $candidate_link: $!";
+        }
+        else {
+            die "$candidate_link exists and is not a symlink; use --force\n";
+        }
+    }
+
+    symlink "$option{prefix}/postfilter", $candidate_link
+        or die "Unable to create symlink $candidate_link: $!";
+
+    make_path(dirname($option{ctl_bin}), { mode => 0755 })
+        unless -d dirname($option{ctl_bin});
+    if (-e $option{ctl_bin} || -l $option{ctl_bin}) {
+        unlink $option{ctl_bin} if -l $option{ctl_bin};
+        if (-e $option{ctl_bin}) {
+            rename $option{ctl_bin}, "$option{ctl_bin}.pre-postfilter-ng.$$"
+                or die "Unable to back up $option{ctl_bin}: $!";
+        }
+    }
+
+    symlink "$option{prefix}/bin/postfilterctl", $option{ctl_bin}
+        or die "Unable to create $option{ctl_bin}: $!";
+
+    chmod 0755,
+        "$option{prefix}/postfilter",
+        "$option{prefix}/bin/postfilterctl";
+
+    return;
+}
+
+# Function: _print_activation_notice
+# Purpose: Shows the exact candidate and active hook paths after a successful installation.
+# Parameters: No positional parameters.
+# Operational notes: The notice deliberately leaves activation to the newsmaster and does not
+#                    rename, replace or delete an existing INN filter hook.
+sub _print_activation_notice {
+    my $candidate_link = "$option{filter_dir}/filter_nnrpd.pl.ng";
+    my $active_link    = "$option{filter_dir}/filter_nnrpd.pl";
+
+    print "\nPostfilter-NG has NOT been activated automatically.\n";
+    print "The installer does not modify the active filter_nnrpd.pl hook.\n";
+    print "Candidate hook: $candidate_link -> $option{prefix}/postfilter\n";
+    print "Active hook:    $active_link\n";
+    print "After completing configuration, article tests and audit review, back up\n";
+    print "the active hook if it exists and rename the candidate to filter_nnrpd.pl.\n";
+    print "See docs/INSTALL.md for the activation and rollback commands.\n";
+    return;
+}
+
+# Function: _set_configuration_ownership
+# Purpose: Recursively applies root:news-style ownership and non-writable configuration
+#          permissions.
+# Parameters: $directory, $group
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _set_configuration_ownership {
+    my ($directory, $group) = @_;
+
+    my $group_id = getgrnam($group);
+    die "Unknown group $group\n" unless defined $group_id;
+
+    chown 0, $group_id, $directory;
+    chmod 0750, $directory;
+
+    opendir my $handle, $directory
+        or die "Unable to open $directory: $!";
+    for my $name (readdir $handle) {
+        next if $name eq '.' || $name eq '..';
+        my $path = "$directory/$name";
+
+        if (-d $path) {
+            _set_configuration_ownership($path, $group);
+        }
+        else {
+            chown 0, $group_id, $path;
+            chmod 0640, $path;
+        }
+    }
+    closedir $handle;
+    return;
+}
+
+# Function: _chown_tree
+# Purpose: Recursively assigns runtime ownership and documented directory/file modes.
+# Parameters: $directory, $user, $group, $directory_mode, $file_mode
+# Operational notes: Runtime state and saved articles are writable by the INN account; HTML
+#                    output may use a separate world-readable mode supplied by the caller.
+sub _chown_tree {
+    my ($directory, $user, $group, $directory_mode, $file_mode) = @_;
+
+    my $user_id = getpwnam($user);
+    my $group_id = getgrnam($group);
+    die "Unknown user $user\n" unless defined $user_id;
+    die "Unknown group $group\n" unless defined $group_id;
+
+    $directory_mode //= 0750;
+    $file_mode //= 0640;
+
+    chown $user_id, $group_id, $directory
+        or die "Unable to chown $directory to $user:$group: $!";
+    chmod $directory_mode, $directory
+        or die "Unable to chmod $directory: $!";
+
+    opendir my $handle, $directory
+        or die "Unable to open $directory: $!";
+    for my $name (readdir $handle) {
+        next if $name eq '.' || $name eq '..';
+        my $path = "$directory/$name";
+
+        if (-d $path) {
+            _chown_tree(
+                $path, $user, $group, $directory_mode, $file_mode,
+            );
+            next;
+        }
+
+        chown $user_id, $group_id, $path
+            or die "Unable to chown $path to $user:$group: $!";
+        chmod $file_mode, $path
+            or die "Unable to chmod $path: $!";
+    }
+    closedir $handle;
+    return;
+}
+
+# Function: _run_as_runtime_user
+# Purpose: Executes one installer validation command with the configured INN uid and gid.
+# Parameters: @command
+# Operational notes: The child drops real/effective uid and gid before exec so configuration
+#                    snapshots and SQLite files are created by the same account used by nnrpd.
+sub _run_as_runtime_user {
+    my (@command) = @_;
+
+    my @account = getpwnam($option{user});
+    die "Unknown user $option{user}\n" unless @account;
+    my ($user_id, $account_group_id, $home) = @account[2, 3, 7];
+    my $group_id = getgrnam($option{group});
+    die "Unknown group $option{group}\n" unless defined $group_id;
+
+    my $pid = fork();
+    die "Unable to fork installer validation command: $!\n"
+        unless defined $pid;
+
+    if ($pid == 0) {
+        $ENV{HOME} = $home if defined $home && length $home;
+        $ENV{USER} = $option{user};
+        $ENV{LOGNAME} = $option{user};
+
+        # Assign the requested primary group and clear inherited root-only
+        # supplementary groups before dropping uid.
+        $( = $group_id;
+        $) = "$group_id $group_id";
+        $< = $user_id;
+        $> = $user_id;
+
+        die "Unable to drop privileges to $option{user}:$option{group}\n"
+            unless $< == $user_id
+                && $> == $user_id
+                && $( == $group_id
+                && int($)) == $group_id;
+
+        exec { $command[0] } @command;
+        die "Unable to execute $command[0] as $option{user}: $!\n";
+    }
+
+    waitpid($pid, 0);
+    return 0 if $? == -1;
+    return 0 if $? & 127;
+    return (($? >> 8) == 0) ? 1 : 0;
+}
+
+=head2 Transaction wrapper and uninstall
+
+=cut
+
+# Function: _execute
+# Purpose: Runs one installer phase and restores the previous code prefix if the phase fails.
+# Parameters: $code
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _execute {
+    my ($code) = @_;
+
+    if ($option{dry_run}) {
+        print "[dry-run] action skipped\n";
+        return;
+    }
+
+    my $success = eval {
+        $code->();
+        1;
+    };
+    return if $success;
+
+    my $error = $@ || 'unknown installer error';
+
+    if ($code_activated && -e $option{prefix}) {
+        remove_tree($option{prefix});
+    }
+    if (-d $backup_directory && !-e $option{prefix}) {
+        rename $backup_directory, $option{prefix};
+    }
+
+    die $error;
+}
+
+# Function: _uninstall
+# Purpose: Removes code and symlinks while preserving SQLite state and saved articles by default.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _uninstall {
+    my $candidate_link = "$option{filter_dir}/filter_nnrpd.pl.ng";
+
+    _execute(sub {
+        unlink $candidate_link if -l $candidate_link;
+        unlink $option{ctl_bin} if -l $option{ctl_bin};
+        remove_tree($option{prefix}) if -d $option{prefix};
+
+        if (-d $option{config_dir} && !$option{keep_config}) {
+            remove_tree($option{config_dir});
+        }
+    });
+
+    print "Uninstalled code and installer-managed symlinks.\n";
+    print "The active filter_nnrpd.pl hook was not modified.\n";
+    print "SQLite state and saved articles were intentionally preserved.\n";
+    return;
+}
+
+# Function: _print_plan
+# Purpose: Displays all resolved installation paths and whether actions will be applied.
+# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _print_plan {
+    print "Postfilter-NG installation plan\n";
+    for my $key (qw(
+        prefix filter_dir config_dir state_dir saved_dir html_dir active_file
+        sendmail ctl_bin user group
+    )) {
+        printf "  %-13s %s\n", $key, $option{$key} // '';
+    }
+    printf "  %-13s %s\n",
+        "hook_candidate",
+        "$option{filter_dir}/filter_nnrpd.pl.ng";
+    printf "  %-13s %s\n",
+        "active_hook",
+        "$option{filter_dir}/filter_nnrpd.pl";
+    print '  mode          '
+        . ($option{dry_run} ? 'DRY-RUN' : 'APPLY')
+        . "\n";
+    return;
+}
+
+# Function: _usage
+# Purpose: Prints command syntax and exits with the supplied status.
+# Parameters: $exit_code
+# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
+#                    rollback where applicable.
+sub _usage {
+    my ($exit_code) = @_;
+
+    print <<'USAGE';
+install-postfilter [options]
+
+Discovery:
+  --use-innconfval / --no-use-innconfval
+  --innconfval PATH
+
+Paths:
+  --filter-dir DIR --config-dir DIR --state-dir DIR --saved-dir DIR
+  --html-dir DIR --prefix DIR --active-file FILE --sendmail FILE
+  --ctl-bin FILE
+
+Identity and operation:
+  --user USER --group GROUP
+  --dry-run --upgrade --force --force-config
+  --uninstall --keep-config --skip-dependency-check --help
+USAGE
+
+    exit $exit_code;
+}
+
+1;

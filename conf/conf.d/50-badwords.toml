@@ -1,0 +1,153 @@
+###############################################################################
+# Badword rules adapted from the operational postfilter-ng badwords.conf.
+#
+# Every rule has a stable identifier, separate subject/body scores, an explicit
+# action and a human-readable description.  The regular expression is compiled
+# while loading the configuration.  A malformed rule is disabled individually;
+# the last-known-good generation and all other valid rules remain active.
+#
+# pattern uses Perl regular-expression syntax.  Literal TOML strings are used so
+# backslashes are not consumed by TOML.  Test every new rule with:
+#   postfilterctl rule-test RULE_ID article.post
+#
+# These migrated content rules are intentionally text-only.  The binary profile
+# skips the badwords stage by default, but the explicit scope below also prevents
+# accidental execution if a newsmaster later removes that skip.  Rules intended
+# for both worlds should omit `article_types`; binary-specific rules may use
+# `article_types = ["binary"]`.
+###############################################################################
+
+[[badword]]
+id = "badword-flachmann"
+enabled = true
+article_types = ["text"]
+description = 'User diffamation'
+pattern = 'flachmann'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 10
+body_score = 10
+action = "score"
+save_article = true
+log_match = true
+
+[[badword]]
+id = "badword-testivo"
+enabled = true
+article_types = ["text"]
+description = 'test for internal admin'
+pattern = 'testivo'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 10
+body_score = 10
+action = "score"
+save_article = true
+log_match = true
+
+[[badword]]
+id = "badword-99"
+enabled = true
+article_types = ["text"]
+description = 'Not permitted text russian'
+pattern = '99 злодеяний Путина'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 20
+body_score = 20
+action = "score"
+save_article = true
+log_match = true
+
+[[badword]]
+id = "badword-russian-government-phrase"
+enabled = true
+article_types = ["text"]
+description = 'Not permitted text russian'
+pattern = 'Козодои в правительстве'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 20
+body_score = 20
+action = "score"
+save_article = true
+log_match = true
+
+[[badword]]
+id = "badword-russian-generator-signature"
+enabled = true
+article_types = ["text"]
+description = 'Not permitted text russian'
+pattern = 'С уважением/, Генератор Либерально-Правозащитных Текстов'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 20
+body_score = 20
+action = "score"
+save_article = true
+log_match = true
+
+[[badword]]
+id = "badword-mikhail-saakashvili"
+enabled = true
+article_types = ["text"]
+description = 'Not permitted text russian'
+pattern = 'Михаил Саакашвили'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 20
+body_score = 20
+action = "score"
+save_article = true
+log_match = true
+
+[[badword]]
+id = "badword-1979"
+enabled = true
+article_types = ["text"]
+description = 'Not permitted text russian'
+pattern = 'Скельская Пещера/, Севастополь/, 1979'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 20
+body_score = 20
+action = "score"
+save_article = true
+log_match = true
+
+[[badword]]
+id = "badword-russian-insult"
+enabled = true
+article_types = ["text"]
+description = 'Not permitted text russian'
+pattern = 'пидор'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 20
+body_score = 20
+action = "score"
+save_article = true
+log_match = true
+
+[[badword]]
+id = "badword-silver-com"
+enabled = true
+article_types = ["text"]
+description = 'Not permitted text'
+pattern = 'Silver/.com'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 20
+body_score = 20
+action = "score"
+save_article = true
+log_match = true

@@ -1,0 +1,32 @@
+###############################################################################
+# Optional overrides selected before the default public/domain/auth limits.
+# identity_type: IP, DN or ID
+# match_type: exact, regex or cidr
+#
+# By default an access profile applies to both text and binary articles.  Use
+# `article_types = ["text"]` or `["binary"]` for type-specific quotas.  When
+# `access.separate_counters_by_article_type = true`, the historical snapshot
+# queried for the profile is also separated, so a binary upload does not consume
+# a text byte allowance.
+###############################################################################
+
+[[access_profile]]
+id = "localhost-unlimited"
+enabled = true
+priority = 1000
+identity_type = "IP"
+match_type = "cidr"
+pattern = "127.0.0.0/8"
+# The limits table is written with dotted keys so every value is reviewable and
+# easy to override without hiding a dozen settings on one long line.
+limits.max_articles = 100000
+limits.max_short_articles = 100000
+limits.max_total_errors = 100000
+limits.max_short_errors = 100000
+limits.max_short_size = 1073741824
+limits.max_total_size = 1073741824
+limits.max_total_groups = 100000
+limits.max_short_groups = 100000
+limits.max_total_followups = 100000
+limits.max_short_followups = 100000
+limits.multipost = 100000

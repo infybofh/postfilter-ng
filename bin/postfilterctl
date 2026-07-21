@@ -1,0 +1,1095 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use utf8;
+use open qw(:std :encoding(UTF-8));
+
+=head1 NAME
+
+postfilterctl - Administration, diagnostics and reporting for Postfilter-NG.
+
+=head1 DESCRIPTION
+
+This is the only administrative command installed by Postfilter-NG.  It replaces
+the historical postlegal utility and provides configuration validation, offline
+article explanation, SQLite integrity/backup/query operations, explicit purging,
+rule tests, HTML report generation and old-configuration conversion.
+
+Destructive history removal is never automatic.  C<purge> defaults to dry-run
+and requires C<--confirm> before deleting anything.
+
+=cut
+
+use FindBin qw($RealBin);
+use lib "$RealBin/../lib";
+
+use File::Path qw(make_path);
+use Getopt::Long qw(Configure GetOptionsFromArray);
+use JSON::PP;
+use POSIX qw(strftime);
+use Storable qw(dclone);
+use Time::Local qw(timegm);
+
+use Postfilter::Checks::Content;
+use Postfilter::Checks::Rules;
+use Postfilter::Config;
+use Postfilter::Context;
+use Postfilter::Crypto;
+use Postfilter::Database;
+use Postfilter::Logger;
+use Postfilter::NG;
+use Postfilter::Report;
+use Postfilter::Codes;
+use Postfilter::Util qw(atomic_write);
+
+Configure('pass_through', 'no_auto_abbrev');
+
+my $config_path =
+    $ENV{POSTFILTER_CONFIG}
+    // '/etc/news/postfilter-ng/postfilter.toml';
+my $state_directory =
+    $ENV{POSTFILTER_STATE_DIR}
+    // '/var/lib/news/postfilter-ng';
+my $json_output = 0;
+my $verbose = 0;
+my $help = 0;
+
+GetOptionsFromArray(
+    \@ARGV,
+    'config=s'    => \$config_path,
+    'state-dir=s' => \$state_directory,
+    'json!'       => \$json_output,
+    'verbose+'    => \$verbose,
+    'help|h'      => \$help,
+) or _usage(2);
+
+my $command = shift @ARGV // 'help';
+_usage(0) if $help || $command eq 'help';
+
+# Commands that do not need to parse the active configuration are handled first.
+if ($command eq 'codes') {
+    print JSON::PP->new->canonical->pretty->encode(Postfilter::Codes->all);
+    exit 0;
+}
+
+if ($command eq 'migrate-old-config') {
+    _command_migrate_old_config(\@ARGV);
+    exit 0;
+}
+
+my $logger = Postfilter::Logger->new(
+    stderr    => 1,
+    verbosity => $verbose ? 9 : 3,
+);
+my $loader = Postfilter::Config->new(
+    logger    => $logger,
+    source    => $config_path,
+    state_dir => $state_directory,
+);
+
+if ($command eq 'check-config') {
+    _command_check_config($loader);
+    exit 0;
+}
+
+my ($config, $warnings, $origin) = $loader->load;
+my $crypto = Postfilter::Crypto->new(logger => $logger);
+my $database = Postfilter::Database->new(
+    config => $config,
+    crypto => $crypto,
+    logger => $logger,
+);
+
+my %command_handler = (
+    'backup'               => sub { _command_backup($database, \@ARGV) },
+    'db-check'             => sub { _command_db_check($database) },
+    'db-migrate'           => sub { _command_db_migrate($database) },
+    'db-vacuum'            => sub { _command_db_vacuum($database) },
+    'decrypt-db-value'     => sub { _command_decrypt_db_value($config, $crypto, \@ARGV) },
+    'decrypt-report-value' => sub { _command_decrypt_report_value($config, $crypto, \@ARGV) },
+    'explain'              => sub { _command_test_article('explain', \@ARGV) },
+    'export'               => sub { _command_export($database, \@ARGV) },
+    'maintenance'          => sub { _command_maintenance($database) },
+    'purge'                => sub { _command_purge($database, \@ARGV) },
+    'query'                => sub { _command_query($database, \@ARGV) },
+    'report-generate'      => sub { _command_report($database, $config, $crypto, $logger) },
+    'rule-test'            => sub { _command_rule_test($config, $crypto, $logger, \@ARGV) },
+    'rules'                => sub { _command_rules($config) },
+    'saved-list'           => sub { _command_saved_list($database, \@ARGV) },
+    'saved-show'           => sub { _command_saved_show($database, \@ARGV) },
+    'show-config'          => sub { _command_show_config($config) },
+    'stats'                => sub { _command_stats($database, \@ARGV) },
+    'test-article'         => sub { _command_test_article('test-article', \@ARGV) },
+    'tor-decode'           => sub { _command_tor_decode($config, $crypto, \@ARGV) },
+);
+
+my $handler = $command_handler{$command};
+die "Unknown command '$command'. Run postfilterctl help.\n" unless $handler;
+$handler->();
+exit 0;
+
+=head2 Configuration commands
+
+=cut
+
+# Function: _command_check_config
+# Purpose: Validates and reports the effective source/LKG configuration generation.
+# Parameters: $loader
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_check_config {
+    my ($loader) = @_;
+
+    my ($effective, $warnings, $origin) = $loader->load;
+    print "Configuration origin: $origin\n";
+    print 'Generation: '
+        . ($effective->{_meta}{generation} // 'unknown')
+        . "\n";
+    print 'Warnings: ' . scalar(@{$warnings}) . "\n";
+    print " - $_\n" for @{$warnings};
+
+    # Returning non-zero when fallback was needed makes this command useful in
+    # package post-install scripts and monitoring systems.
+    exit($origin eq 'source' ? 0 : 1);
+}
+
+# Function: _command_show_config
+# Purpose: Prints the fully merged and sanitised configuration as canonical JSON.
+# Parameters: $config
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_show_config {
+    my ($config) = @_;
+    print JSON::PP->new->canonical->pretty->encode($config);
+    return;
+}
+
+=head2 SQLite commands
+
+=cut
+
+# Function: _command_db_check
+# Purpose: Opens SQLite, runs integrity_check, and reports the schema version.
+# Parameters: $database
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_db_check {
+    my ($database) = @_;
+
+    my $dbh = $database->require_connection('db-check');
+    my ($result) = $dbh->selectrow_array('PRAGMA integrity_check');
+    print "SQLite integrity_check: $result\n";
+    exit($result eq 'ok' ? 0 : 1);
+}
+
+# Function: _command_db_migrate
+# Purpose: Applies idempotent SQLite schema migrations.
+# Parameters: $database
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_db_migrate {
+    my ($database) = @_;
+    $database->require_connection('db-migrate');
+    $database->migrate;
+    print "Database schema is current.\n";
+    return;
+}
+
+# Function: _command_db_vacuum
+# Purpose: Runs an explicit SQLite VACUUM maintenance operation.
+# Parameters: $database
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_db_vacuum {
+    my ($database) = @_;
+    $database->require_connection('db-vacuum')->do('VACUUM');
+    print "VACUUM completed.  No event rows were deleted.\n";
+    return;
+}
+
+# Function: _command_backup
+# Purpose: Creates a consistent SQLite backup at the requested destination.
+# Parameters: $database, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_backup {
+    my ($database, $arguments) = @_;
+    my $destination = shift @{$arguments}
+        or die "backup requires a destination filename\n";
+
+    $database->backup_to_file($destination);
+    print "Consistent SQLite backup written to $destination\n";
+    return;
+}
+
+# Function: _command_maintenance
+# Purpose: Removes only stale provider-health telemetry.
+# Parameters: $database
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_maintenance {
+    my ($database) = @_;
+    my $rows = $database->maintenance_provider_health;
+    print "Removed $rows stale provider-health rows.\n";
+    print "Article and rule history was not touched.\n";
+    return;
+}
+
+=head2 _command_purge
+
+Explicit event deletion.  C<--before> accepts a Unix epoch or YYYY-MM-DD in UTC.
+Without C<--confirm> the command prints the number of matching rows and exits.
+
+=cut
+
+# Function: _command_purge
+# Purpose: Performs dry-run counting or confirmed audited event deletion before a selected time.
+# Parameters: $database, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_purge {
+    my ($database, $arguments) = @_;
+
+    my $before;
+    my $confirm = 0;
+    my $note = '';
+    GetOptionsFromArray(
+        $arguments,
+        'before=s' => \$before,
+        'confirm!' => \$confirm,
+        'note=s'   => \$note,
+    ) or die "Invalid purge options\n";
+
+    die "purge requires --before EPOCH_OR_YYYY-MM-DD\n"
+        unless defined $before;
+
+    my $epoch = _parse_time_argument($before);
+    my $count = $database->purge_events_before(
+        before         => $epoch,
+        confirm        => $confirm,
+        note           => $note,
+        operating_user => getpwuid($>) // "uid-$>",
+    );
+
+    if (!$confirm) {
+        print "$count event rows would be deleted.\n";
+        print "Re-run with --confirm to perform the purge.\n";
+        return;
+    }
+
+    print "$count event rows deleted and administrative action recorded.\n";
+    return;
+}
+
+# Function: _parse_time_argument
+# Purpose: Parses epoch or ISO-like administrative time input into a Unix timestamp.
+# Parameters: $value
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _parse_time_argument {
+    my ($value) = @_;
+    return 0 + $value if $value =~ /^\d+(?:\.\d+)?$/;
+
+    if ($value =~ /^(\d{4})-(\d{2})-(\d{2})$/) {
+        return timegm(0, 0, 0, $3, $2 - 1, $1);
+    }
+
+    die "Invalid time '$value'; use Unix epoch or YYYY-MM-DD\n";
+}
+
+=head2 Reports and cryptographic helpers
+
+=cut
+
+# Function: _command_report
+# Purpose: Generates the configured static HTML report.
+# Parameters: $database, $config, $crypto, $logger
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_report {
+    my ($database, $config, $crypto, $logger) = @_;
+
+    my $output = Postfilter::Report->generate(
+        config   => $config,
+        crypto   => $crypto,
+        database => $database,
+        logger   => $logger,
+    );
+    print "$output\n";
+    return;
+}
+
+# Function: _command_tor_decode
+# Purpose: Decrypts one TOR header token with the dedicated TOR key.
+# Parameters: $config, $crypto, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_tor_decode {
+    my ($config, $crypto, $arguments) = @_;
+
+    my $token = shift @{$arguments}
+        or die "tor-decode requires a token\n";
+    my $key_path =
+        $config->{tor}{header}{key_file}
+        // $config->{keys}{tor_header};
+    my $key = $crypto->load_key($key_path);
+
+    print $crypto->decrypt_token($token, $key, 'tor-header') . "\n";
+    return;
+}
+
+# Function: _command_decrypt_report_value
+# Purpose: Decrypts one reversible HTML-report identity token.
+# Parameters: $config, $crypto, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_decrypt_report_value {
+    my ($config, $crypto, $arguments) = @_;
+
+    my $token = shift @{$arguments}
+        or die "decrypt-report-value requires TOKEN [ip|user]\n";
+    my $kind = shift(@{$arguments}) // 'ip';
+    die "Value kind must be ip or user\n"
+        unless $kind eq 'ip' || $kind eq 'user';
+
+    my $key_path =
+        $config->{html_report}{privacy}{key_file}
+        // $config->{keys}{html_report};
+    my $key = $crypto->load_key($key_path);
+
+    print $crypto->decrypt_token($token, $key, "html-$kind") . "\n";
+    return;
+}
+
+# Function: _command_decrypt_db_value
+# Purpose: Decrypts one reversible SQLite identity token.
+# Parameters: $config, $crypto, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_decrypt_db_value {
+    my ($config, $crypto, $arguments) = @_;
+
+    my $token = shift @{$arguments}
+        or die "decrypt-db-value requires TOKEN FIELD\n";
+    my $field = shift @{$arguments}
+        or die "FIELD is client_ip, client_domain, auth_user or from_address\n";
+    die "Unsupported database identity field '$field'\n"
+        unless $field =~ /^(?:client_ip|client_domain|auth_user|from_address)$/;
+
+    my $key_path =
+        $config->{database}{privacy}{key_file}
+        // $config->{keys}{database_privacy};
+    my $key = $crypto->load_key($key_path);
+
+    print $crypto->decrypt_token($token, $key, "database-$field") . "\n";
+    return;
+}
+
+=head2 Rule, statistics and history commands
+
+=cut
+
+# Function: _command_rules
+# Purpose: Lists effective badword and ban rules with enabled state and actions.
+# Parameters: $config
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_rules {
+    my ($config) = @_;
+
+    my @rows;
+    for my $kind (qw(
+        badword ban_rule trusted_profile access_profile dnsbl uribl surbl
+    )) {
+        for my $rule (@{ $config->{$kind} // [] }) {
+            push @rows, {
+                description => $rule->{description} // '',
+                enabled     => $rule->{enabled} ? JSON::PP::true : JSON::PP::false,
+                id          => $rule->{id},
+                invalid     => $rule->{_invalid} // '',
+                type        => $kind,
+            };
+        }
+    }
+
+    if ($json_output) {
+        print JSON::PP->new->canonical->pretty->encode(\@rows);
+        return;
+    }
+
+    for my $row (@rows) {
+        printf(
+            "%-18s %-54s %s%s\n",
+            $row->{type},
+            $row->{id},
+            $row->{enabled} ? 'enabled' : 'disabled',
+            $row->{invalid} ? " ($row->{invalid})" : '',
+        );
+    }
+
+    return;
+}
+
+# Function: _command_stats
+# Purpose: Prints aggregate article-result statistics for a requested window.
+# Parameters: $database, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_stats {
+    my ($database, $arguments) = @_;
+
+    my $hours = shift(@{$arguments}) // 24;
+    die "HOURS must be a positive number\n"
+        unless $hours =~ /^\d+(?:\.\d+)?$/ && $hours > 0;
+
+    my $since = time - ($hours * 3_600);
+    my $rows = $database->require_connection('stats')->selectall_arrayref(q{
+        SELECT article_type, nntp_result, technical_verdict, COUNT(*) AS count
+        FROM article_events
+        WHERE received_at >= ?
+        GROUP BY article_type, nntp_result, technical_verdict
+        ORDER BY article_type, count DESC
+    }, { Slice => {} }, $since);
+
+    print JSON::PP->new->canonical->pretty->encode($rows);
+    return;
+}
+
+# Function: _command_query
+# Purpose: Builds a parameterised event-history query from supported filters.
+# Parameters: $database, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_query {
+    my ($database, $arguments) = @_;
+
+    my ($ip, $user, $message_id, $reason, $article_type, $limit) =
+        ('', '', '', '', '', 100);
+    GetOptionsFromArray(
+        $arguments,
+        'ip=s'         => \$ip,
+        'user=s'       => \$user,
+        'message-id=s' => \$message_id,
+        'reason=s'     => \$reason,
+        'article-type=s' => \$article_type,
+        'limit=i'      => \$limit,
+    ) or die "Invalid query options\n";
+
+    $limit = 100 if $limit < 1;
+    $limit = 10_000 if $limit > 10_000;
+
+    my (@where, @bind);
+
+    # Identity columns may contain clear text, HMACs or randomised ciphertext.
+    # Equality searches therefore use the stable hidden lookup columns rather
+    # than comparing the displayed storage values directly.
+    if (length $ip) {
+        push @where, 'client_ip_lookup = ?';
+        push @bind, $database->identity_lookup('client_ip', $ip);
+    }
+    if (length $user) {
+        push @where, 'auth_user_lookup = ?';
+        push @bind, $database->identity_lookup('auth_user', $user);
+    }
+    if (length $message_id) {
+        push @where, 'message_id = ?';
+        push @bind, $message_id;
+    }
+    if (length $reason) {
+        push @where, 'reason_code = ?';
+        push @bind, $reason;
+    }
+    if (length $article_type) {
+        die "article-type must be text or binary\n"
+            unless $article_type eq 'text' || $article_type eq 'binary';
+        push @where, 'article_type = ?';
+        push @bind, $article_type;
+    }
+
+    my $sql = 'SELECT * FROM article_events';
+    $sql .= ' WHERE ' . join(' AND ', @where) if @where;
+    $sql .= ' ORDER BY received_at DESC LIMIT ?';
+    push @bind, $limit;
+
+    my $rows = $database->require_connection('query')->selectall_arrayref(
+        $sql,
+        { Slice => {} },
+        @bind,
+    );
+    _reveal_event_identities($database, $rows);
+    print JSON::PP->new->canonical->pretty->encode($rows);
+    return;
+}
+
+# Function: _command_export
+# Purpose: Exports query results as JSON Lines or RFC-style CSV.
+# Parameters: $database, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_export {
+    my ($database, $arguments) = @_;
+
+    my $format = 'jsonl';
+    my $output = '-';
+    my $reveal_identities = 0;
+    GetOptionsFromArray(
+        $arguments,
+        'format=s'           => \$format,
+        'output=s'           => \$output,
+        'reveal-identities!' => \$reveal_identities,
+    ) or die "Invalid export options\n";
+
+    die "Format must be jsonl or csv\n"
+        unless $format eq 'jsonl' || $format eq 'csv';
+
+    my $rows = $database->require_connection('export')->selectall_arrayref(
+        'SELECT * FROM article_events ORDER BY received_at',
+        { Slice => {} },
+    );
+    _reveal_event_identities($database, $rows) if $reveal_identities;
+
+    my $data = $format eq 'jsonl'
+        ? _rows_as_jsonl($rows)
+        : _rows_as_csv($rows);
+
+    if ($output eq '-') {
+        print $data;
+    }
+    else {
+        atomic_write($output, $data, 0640);
+    }
+
+    return;
+}
+
+# Function: _reveal_event_identities
+# Purpose: Decodes protected event identities for trusted local administrative output.
+# Parameters: $database, $rows
+# Operational notes: HMAC storage remains irreversible by design; encrypted rows are
+#                    authenticated before any plaintext is returned.
+sub _reveal_event_identities {
+    my ($database, $rows) = @_;
+
+    for my $row (@{$rows}) {
+        my $storage_mode = $row->{identity_storage_mode} // 'plain';
+        for my $column (qw(
+            client_ip
+            client_domain
+            auth_user
+            from_address
+        )) {
+            next unless exists $row->{$column};
+            $row->{$column} = $database->reveal_identity(
+                $column,
+                $row->{$column},
+                $storage_mode,
+            );
+        }
+    }
+
+    return;
+}
+
+# Function: _command_saved_list
+# Purpose: Lists saved-article metadata in reverse chronological order.
+# Parameters: $database, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_saved_list {
+    my ($database, $arguments) = @_;
+
+    my $limit = 100;
+    my $article_type = '';
+    GetOptionsFromArray(
+        $arguments,
+        'article-type=s' => \$article_type,
+        'limit=i'        => \$limit,
+    ) or die "Invalid saved-list options\n";
+
+    # Retain the historical positional LIMIT form while documenting named
+    # options for new scripts.
+    if (@{$arguments} && $arguments->[0] =~ /^\d+$/) {
+        $limit = shift @{$arguments};
+    }
+    die "Unexpected saved-list argument: $arguments->[0]\n"
+        if @{$arguments};
+
+    $limit = 100 if $limit < 1;
+    $limit = 10_000 if $limit > 10_000;
+
+    my @where;
+    my @bind;
+    if (length $article_type) {
+        die "article-type must be text or binary\n"
+            unless $article_type eq 'text' || $article_type eq 'binary';
+        push @where, 'saved_articles.article_type = ?';
+        push @bind, $article_type;
+    }
+
+    my $sql = q{
+        SELECT saved_articles.*,
+               article_events.reason_code,
+               article_events.legacy_code
+        FROM saved_articles
+        LEFT JOIN article_events
+          ON article_events.id = saved_articles.event_id
+    };
+    $sql .= ' WHERE ' . join(' AND ', @where) if @where;
+    $sql .= ' ORDER BY saved_articles.created_at DESC LIMIT ?';
+    push @bind, $limit;
+
+    my $rows = $database->require_connection('saved-list')->selectall_arrayref(
+        $sql,
+        { Slice => {} },
+        @bind,
+    );
+    print JSON::PP->new->canonical->pretty->encode($rows);
+    return;
+}
+
+
+# Function: _command_saved_show
+# Purpose: Prints one saved article after verifying its database path.
+# Parameters: $database, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_saved_show {
+    my ($database, $arguments) = @_;
+
+    my $id = shift @{$arguments}
+        or die "saved-show requires an ID\n";
+    my ($path) = $database->require_connection('saved-show')->selectrow_array(
+        'SELECT path FROM saved_articles WHERE id = ?',
+        undef,
+        $id,
+    );
+    die "Saved article not found\n" unless $path;
+
+    open my $article, '<:raw', $path or die "$path: $!";
+    binmode STDOUT, ':raw';
+    while (read($article, my $buffer, 65_536)) {
+        print STDOUT $buffer;
+    }
+    close $article;
+    return;
+}
+
+=head2 Offline article and rule tests
+
+=cut
+
+# Function: _command_rule_test
+# Purpose: Evaluates one selected rule against an offline article fixture.
+# Parameters: $config, $crypto, $logger, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_rule_test {
+    my ($config, $crypto, $logger, $arguments) = @_;
+
+    my $rule_id = shift @{$arguments}
+        or die "rule-test requires RULE_ID ARTICLE_FILE\n";
+    my $file = shift @{$arguments}
+        or die "rule-test requires RULE_ID ARTICLE_FILE\n";
+
+    my ($headers, $body) = _read_article($file);
+    my $test_config = dclone($config);
+    $test_config->{database}{enabled} = 0;
+
+    my ($kind, $selected_rule);
+    for my $candidate_kind (qw(ban_rule badword)) {
+        for my $candidate (@{ $test_config->{$candidate_kind} // [] }) {
+            next unless ($candidate->{id} // '') eq $rule_id;
+            $kind = $candidate_kind;
+            $selected_rule = $candidate;
+            last;
+        }
+        last if $selected_rule;
+    }
+
+    die "Rule '$rule_id' was not found in ban_rule or badword\n"
+        unless $selected_rule;
+
+    $test_config->{ban_rule} = $kind eq 'ban_rule' ? [$selected_rule] : [];
+    $test_config->{badword}  = $kind eq 'badword'  ? [$selected_rule] : [];
+    $test_config->{modules}{banlist} = $kind eq 'ban_rule' ? 1 : 0;
+    $test_config->{modules}{badwords} = $kind eq 'badword'  ? 1 : 0;
+
+    my $context = Postfilter::Context->new(
+        attributes => {
+            hostname  => 'localhost',
+            ipaddress => '127.0.0.1',
+        },
+        body     => $body,
+        config   => $test_config,
+        crypto   => $crypto,
+        db       => undef,
+        headers  => $headers,
+        logger   => $logger,
+        suffixes => {},
+        user     => 'postfilterctl-rule-test',
+    );
+
+    my $result = $kind eq 'ban_rule'
+        ? Postfilter::Checks::Rules->run_banlist($context)
+        : Postfilter::Checks::Content->run_badwords($context);
+
+    print JSON::PP->new->canonical->pretty->encode({
+        hits    => $context->{rule_hits},
+        kind    => $kind,
+        result  => { %{$result} },
+        rule_id => $rule_id,
+    });
+
+    exit($result->is_pass ? 0 : 1);
+}
+
+# Function: _command_test_article
+# Purpose: Runs the complete engine against a raw-client or INN-hook fixture.
+# Parameters: $mode, $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_test_article {
+    my ($mode, $arguments) = @_;
+
+    my $user = '';
+    my $ip = '127.0.0.1';
+    my $hostname = 'localhost';
+    my $hook_stage = 'raw';
+    GetOptionsFromArray(
+        $arguments,
+        'user=s'       => \$user,
+        'ip=s'         => \$ip,
+        'hostname=s'   => \$hostname,
+        'hook-stage=s' => \$hook_stage,
+    ) or die "Invalid article-test options\n";
+
+    my $file = shift @{$arguments}
+        or die "$mode requires an article file\n";
+    die "hook-stage must be raw or inn\n"
+        unless $hook_stage eq 'raw' || $hook_stage eq 'inn';
+
+    my ($headers, $body) = _read_article($file);
+
+    # INN normally inserts Path before filter_post.  Raw mode intentionally leaves
+    # the fixture untouched; inn mode adds a representative Path when absent.
+    if ($hook_stage eq 'inn' && !length($headers->{Path} // '')) {
+        $headers->{Path} = 'not-for-mail';
+    }
+
+    my $engine = Postfilter::NG->new(
+        config    => $config_path,
+        state_dir => $state_directory,
+        stderr    => 1,
+        verbosity => $mode eq 'explain' ? 9 : 3,
+    );
+    my $response = $engine->process_article(
+        attributes => {
+            hostname  => $hostname,
+            interface => 'postfilterctl',
+            ipaddress => $ip,
+        },
+        body    => $body,
+        headers => $headers,
+        user    => $user,
+    );
+
+    print $response eq ''
+        ? "ACCEPT\n"
+        : $response eq 'DROP'
+            ? "DROP\n"
+            : "REJECT: $response\n";
+
+    exit($response eq '' ? 0 : 1);
+}
+
+# Function: _read_article
+# Purpose: Parses an offline article into unfolded headers and body for testing.
+# Parameters: $file
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _read_article {
+    my ($file) = @_;
+
+    open my $article, '<:raw', $file or die "$file: $!";
+    local $/;
+    my $source = <$article>;
+    close $article;
+
+    my ($header_block, $body) = split /\r?\n\r?\n/, $source, 2;
+    $body //= '';
+
+    my (%headers, $current_name);
+    for my $line (split /\r?\n/, $header_block) {
+        if ($line =~ /^[ \t]/ && defined $current_name) {
+            $headers{$current_name} .= "\n$line";
+            next;
+        }
+
+        my ($name, $value) = split /:\s*/, $line, 2;
+        next unless defined $value;
+        $current_name = $name;
+        $headers{$name} = $value;
+    }
+
+    return (\%headers, $body);
+}
+
+=head2 Old-configuration conversion
+
+=cut
+
+# Function: _command_migrate_old_config
+# Purpose: Converts supported historical banlist/badwords syntax into commented TOML candidates.
+# Parameters: $arguments
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _command_migrate_old_config {
+    my ($arguments) = @_;
+
+    my ($banlist, $badwords, $output_directory);
+    GetOptionsFromArray(
+        $arguments,
+        'banlist=s'   => \$banlist,
+        'badwords=s'  => \$badwords,
+        'output-dir=s' => \$output_directory,
+    ) or die "Invalid migration options\n";
+
+    die "migrate-old-config requires --output-dir and at least one input file\n"
+        unless $output_directory && ($banlist || $badwords);
+
+    make_path($output_directory, { mode => 0750 });
+
+    if ($banlist) {
+        atomic_write(
+            "$output_directory/60-banlist-converted.toml",
+            _convert_old_banlist($banlist),
+            0640,
+        );
+    }
+
+    if ($badwords) {
+        atomic_write(
+            "$output_directory/50-badwords-converted.toml",
+            _convert_old_badwords($badwords),
+            0640,
+        );
+    }
+
+    print "Converted files written to $output_directory.\n";
+    print "Review every regex and run check-config before activation.\n";
+    return;
+}
+
+# Function: _convert_old_banlist
+# Purpose: Converts one historical colon-separated ban rule into a reviewable TOML entry.
+# Parameters: $path
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _convert_old_banlist {
+    my ($path) = @_;
+
+    open my $handle, '<:encoding(UTF-8)', $path or die "$path: $!";
+    my $output = "# Converted from the previous colon-separated banlist.\n";
+    my $line_number = 0;
+
+    while (my $line = <$handle>) {
+        $line_number++;
+        chomp $line;
+        next if $line =~ /^\s*(?:#|$)/;
+
+        my @field = split /:/, $line, 6;
+        next unless @field >= 3;
+
+        my ($header, $value, $action, $argument, $response, $comment) = @field;
+        my $id = _slug("converted-$header-$value-$line_number");
+        my $new_action = lc($action // 'reject');
+        $new_action = 'set_score_limit' if $new_action eq 'setmax';
+        $new_action = 'add_metric' if $new_action eq 'sum';
+        $new_action = 'set_article_config' if $new_action eq 'config';
+
+        $output .= "\n[[ban_rule]]\n";
+        $output .= 'id = ' . _toml_literal($id) . "\n";
+        $output .= "enabled = false\n";
+        $output .= 'description = ' . _toml_literal(
+            $comment // 'Converted rule; manual review required'
+        ) . "\n";
+        $output .= "target = \"any.header\"\n";
+        $output .= 'header_name_pattern = ' . _toml_literal($header // '.*') . "\n";
+        $output .= 'header_value_pattern = ' . _toml_literal($value // '.*') . "\n";
+        $output .= "match_type = \"regex\"\n";
+        $output .= 'action = ' . _toml_literal($new_action) . "\n";
+        $output .= 'response = ' . _toml_literal($response // 'Posting rejected') . "\n";
+        if (defined $argument && length $argument) {
+            $output .= '# Previous action argument: '
+                . $argument
+                . " (map manually to the corresponding structured action field)\n";
+        }
+    }
+
+    close $handle;
+    return $output;
+}
+
+# Function: _convert_old_badwords
+# Purpose: Converts one historical badword line into a reviewable TOML entry.
+# Parameters: $path
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _convert_old_badwords {
+    my ($path) = @_;
+
+    open my $handle, '<:encoding(UTF-8)', $path or die "$path: $!";
+    my $output = "# Converted from the previous badwords file.\n";
+    my $line_number = 0;
+
+    while (my $line = <$handle>) {
+        $line_number++;
+        chomp $line;
+        next if $line =~ /^\s*(?:#|$)/;
+
+        my ($pattern, $body_score, $subject_score) = split /:/, $line, 3;
+        next unless defined $subject_score;
+
+        my $id = _slug("badword-$pattern-$line_number");
+        $output .= "\n[[badword]]\n";
+        $output .= 'id = ' . _toml_literal($id) . "\n";
+        $output .= "enabled = false\n";
+        $output .= "description = \"Converted rule; manual review required\"\n";
+        $output .= 'pattern = ' . _toml_literal($pattern) . "\n";
+        $output .= "match_type = \"regex\"\n";
+        $output .= "targets = [\"subject\", \"body\"]\n";
+        $output .= 'subject_score = ' . (0 + $subject_score) . "\n";
+        $output .= 'body_score = ' . (0 + $body_score) . "\n";
+        $output .= "action = \"score\"\n";
+    }
+
+    close $handle;
+    return $output;
+}
+
+=head2 Output helpers
+
+=cut
+
+# Function: _rows_as_jsonl
+# Purpose: Serialises database rows as one canonical JSON object per line.
+# Parameters: $rows
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _rows_as_jsonl {
+    my ($rows) = @_;
+    my $encoder = JSON::PP->new->canonical;
+    return join '', map { $encoder->encode($_) . "\n" } @{$rows};
+}
+
+# Function: _rows_as_csv
+# Purpose: Serialises database rows with a deterministic header and escaped fields.
+# Parameters: $rows
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _rows_as_csv {
+    my ($rows) = @_;
+    return '' unless @{$rows};
+
+    my @columns = sort keys %{ $rows->[0] };
+    my $output = join(',', map { _csv_field($_) } @columns) . "\n";
+    for my $row (@{$rows}) {
+        $output .= join(',', map {
+            _csv_field($row->{$_})
+        } @columns) . "\n";
+    }
+    return $output;
+}
+
+# Function: _csv_field
+# Purpose: Quotes one CSV field and doubles embedded quote characters.
+# Parameters: $value
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _csv_field {
+    my ($value) = @_;
+    $value = '' unless defined $value;
+    $value =~ s/"/""/g;
+    return qq{"$value"};
+}
+
+# Function: _toml_literal
+# Purpose: Quotes one generated TOML string without changing its regex backslashes.
+# Parameters: $value
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _toml_literal {
+    my ($value) = @_;
+    $value = '' unless defined $value;
+    $value =~ s/'/''/g;
+    return "'$value'";
+}
+
+# Function: _slug
+# Purpose: Converts arbitrary text to a conservative identifier used in generated rule IDs.
+# Parameters: $value
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _slug {
+    my ($value) = @_;
+    $value = lc $value;
+    $value =~ s/[^a-z0-9]+/-/g;
+    $value =~ s/^-|-$//g;
+    return substr($value || 'converted-rule', 0, 80);
+}
+
+# Function: _usage
+# Purpose: Prints command syntax and exits with the supplied status.
+# Parameters: $exit_code
+# Operational notes: Administrative output/errors are written to the terminal; destructive
+#                    operations require explicit confirmation.
+sub _usage {
+    my ($exit_code) = @_;
+
+    print <<'USAGE';
+postfilterctl [global options] COMMAND [command options]
+
+Global options:
+  --config FILE             main postfilter.toml
+  --state-dir DIR           last-known-good and runtime state directory
+  --json                    JSON output where supported
+  --verbose                 increase diagnostic verbosity
+
+Configuration and rules:
+  check-config
+  show-config
+  codes
+  rules
+  rule-test RULE_ID ARTICLE_FILE
+  migrate-old-config --output-dir DIR [--banlist FILE] [--badwords FILE]
+
+Offline article tests:
+  test-article [--user ID] [--ip IP] [--hook-stage raw|inn] FILE
+  explain      [--user ID] [--ip IP] [--hook-stage raw|inn] FILE
+
+SQLite and history:
+  db-check
+  db-migrate
+  db-vacuum
+  backup DESTINATION
+  maintenance
+  purge --before EPOCH_OR_DATE [--confirm] [--note TEXT]
+  query [--ip IP] [--user ID] [--message-id ID] [--reason CODE]
+        [--article-type text|binary]
+  export [--format jsonl|csv] [--output FILE|-] [--reveal-identities]
+  stats [HOURS]
+  saved-list [--article-type text|binary] [--limit N] [LIMIT]
+  saved-show ID
+
+Reports and protected values:
+  report-generate
+  tor-decode TOKEN
+  decrypt-report-value TOKEN [ip|user]
+  decrypt-db-value TOKEN FIELD
+USAGE
+
+    exit $exit_code;
+}
+
+1;

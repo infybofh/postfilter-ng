@@ -1,0 +1,773 @@
+###############################################################################
+# Banlist adapted from the operational postfilter-ng banlist.conf.
+#
+# The previous colon-separated format was:
+#   HEADER_REGEX:VALUE_REGEX:ACTION:ARGUMENT:CLIENT_TEXT:ADMIN_COMMENT
+#
+# The new format keeps each component explicit.  `any.header` is intentionally
+# used for migrated rules so matching remains identical even when the From field
+# contains only a display name or a malformed address.  New rules should prefer
+# parsed targets such as from.address whenever possible.
+#
+# Actions available to rules:
+#   log, reject, drop, save, score, set_score_limit, add_metric,
+#   set_article_config
+#
+# `drop` returns INN's documented DROP response in enforce mode.  During
+# audit it is recorded as would-discard while the article is accepted.
+#
+# Ban rules are shared between text and binary articles unless `article_types`
+# is present.  Identity and abusive-client rules below remain shared on purpose.
+# A rule inspecting prose or a binary segment naming convention should normally
+# declare `article_types = ["text"]` or `["binary"]` respectively.  This field
+# controls where the rule is evaluated; it does not alter article classification.
+###############################################################################
+
+[[ban_rule]]
+id = "from-steve-carroll-normalized-variants"
+enabled = true
+priority = 2000
+description = "Normalized mailbox rule covering Steve Carroll spelling variants."
+target = "from.address"
+match_type = "regex"
+pattern = '^stev(?:e)?carrol{1,2}@nospam\.none$'
+case_sensitive = false
+action = "reject"
+reason_code = "PF-RULE-201"
+legacy_code = 34
+response = "Posting rejected by local policy"
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-user-agent-newssync"
+enabled = true
+priority = 1000
+description = 'NewsSync is a known spam bot'
+target = "any.header"
+header_name_pattern = 'User-Agent'
+header_value_pattern = 'newsSync'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Article posted through newsSync'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-abuse-postmaster-newsmaster"
+enabled = true
+priority = 1000
+description = 'Contacts'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'abuse\@|postmaster\@|newsmaster\@'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Contact addresses do not post messages'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-x-library-indy"
+enabled = true
+priority = 1000
+description = 'Indy is a commonly used USENET spam machine'
+target = "any.header"
+header_name_pattern = 'X\-Library'
+header_value_pattern = 'Indy'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Article posted through Indy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-pete-zerria"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'pete\.zerria\@'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Abuse addresses do not post messages'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-hakiro-mikabi"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'hakiro\.mikabi\@'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-hukiru-mikubi"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'hukiru\.mikubi\@'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-hikori-mokibo"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'hikori\.mokibo\@'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-hakuri-mukabu"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'hakuri\.mukabu\@'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-hekiru-mikebi"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'hekiru\.mikebi\@'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-hikuri-mukibu"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'hikuri\.mukibu\@'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-user-agent-dolbo"
+enabled = true
+priority = 1000
+description = 'Know russian abuser'
+target = "any.header"
+header_name_pattern = 'User-Agent'
+header_value_pattern = 'Dolbo'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Article russian posted through Dolbo'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-user-agent-leprosorium"
+enabled = true
+priority = 1000
+description = 'Know russian abuser'
+target = "any.header"
+header_name_pattern = 'User-Agent'
+header_value_pattern = 'Leprosorium'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Article russian posted through Dolbo'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-seubuu-meithohc-kz"
+enabled = true
+priority = 1000
+description = 'Know russian abuser'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'seubuu\@meithohc\.kz'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Article russian posted through Dolbo'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-raybanana-net"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = '\@raybanana\.net'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-levita-com"
+enabled = true
+priority = 1000
+description = 'Abuse Spam'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = '\@levita\.com'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Abuse spam'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-user-agent-g2"
+enabled = true
+priority = 1000
+description = 'Google newsagent'
+target = "any.header"
+header_name_pattern = 'User-Agent'
+header_value_pattern = 'G2'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Simulate Google newsagent'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-mr-heissgetraenk-mailinator-com"
+enabled = true
+priority = 1000
+description = 'Abuse Spam'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'mr\.heissgetraenk\@mailinator\.com'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Abuse spam'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-silver-com"
+enabled = true
+priority = 1000
+description = 'Abuse Spam'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = '\@silver\.com'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Abuse spam'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-lns-invalid-net"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'lns\@invalid\.net'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-reply-to-lns-invalid-net"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'Reply-To'
+header_value_pattern = 'lns\@invalid\.net'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-face"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'Face'
+header_value_pattern = '\.\*$'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-iron-white-systemic-patrriotism-org"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'Iron\_White\@Systemic\_Patrriotism\.org'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-ahk-chinet-com"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'ahk\@chinet\.com'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by anonymous abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-adam-h-kerman"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'Adam H\. Kerman'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by anonymous abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-brockmcknuggets-gmail-com"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'brockmcknuggets\@gmail\.com'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by anonymous abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-michael-glasser"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'Michael Glasser'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by anonymous abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-jtem01-gmail"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'jtem01\@gmail'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-jtem"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'JTEM'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-atropos-mac-com"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'atropos\@mac\.com'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-atropdos-mac-com"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'atropdos\@mac\.com'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+[[ban_rule]]
+id = "block-from-btr1701"
+enabled = true
+priority = 1000
+description = 'Abuse'
+target = "any.header"
+header_name_pattern = 'From'
+header_value_pattern = 'BTR1701'
+match_type = "regex"
+case_sensitive = false
+action = "drop"
+output_type = "syslog"
+reason_code = "PF-RULE-034"
+legacy_code = 34
+response = 'Posting rejected by abuse policy'
+save_article = true
+log_match = true
+exclude_profiles = ["administrators", "operational-admin-identities"]
+
+###############################################################################
+# Disabled reference examples.  They document every historical action without
+# changing the operational policy.  Copy, rename and enable only after testing.
+###############################################################################
+
+[[ban_rule]]
+id = "example-score-body"
+enabled = false
+priority = 100
+description = "Add five points to the named score when the body matches."
+target = "body"
+match_type = "regex"
+pattern = 'example spam phrase'
+action = "score"
+score_variable = "spam"
+score_value = 5
+
+[[ban_rule]]
+id = "example-setmax-score"
+enabled = false
+priority = 200
+description = "Reject with legacy code 49 when score spam exceeds ten."
+target = "body"
+match_type = "regex"
+pattern = '.*'
+action = "set_score_limit"
+score_variable = "spam"
+score_limit = 10
+
+[[ban_rule]]
+id = "example-sum-groups"
+enabled = false
+priority = 150
+description = "Add the number of target groups to a named accumulator."
+target = "newsgroups"
+match_type = "regex"
+pattern = '.*'
+action = "add_metric"
+score_variable = "fanout"
+metric = "groups"
+
+[[ban_rule]]
+id = "example-save-without-reject"
+enabled = false
+priority = 100
+description = "Save a matching article for inspection but do not reject it."
+target = "subject"
+match_type = "regex"
+pattern = 'suspicious phrase'
+action = "save"
+save_article = true
+
+[[ban_rule]]
+id = "example-runtime-config-override"
+enabled = false
+priority = 100
+description = "Per-article per-article configuration override."
+target = "auth.user"
+match_type = "exact"
+pattern = "special-user"
+action = "set_article_config"
+config_key = "limits.max_crosspost"
+config_value = 20
+
+###############################################################################
+# External-destination examples.  All are disabled.  They demonstrate
+# the exact replacement for the old fourth/fifth colon-separated fields.
+###############################################################################
+
+[[ban_rule]]
+id = "example-log-to-file"
+enabled = false
+priority = 100
+description = "Append one diagnostic line to a locked local file."
+target = "subject"
+match_type = "regex"
+pattern = 'example'
+action = "log"
+output_type = "file"
+output_path = "/var/log/news/postfilter-rule-example.log"
+log_message = "Rule matched Message-ID %M from %F in %N"
+
+[[ban_rule]]
+id = "example-save-rnews"
+enabled = false
+priority = 100
+description = "Append the complete article in rnews batch format."
+target = "subject"
+match_type = "regex"
+pattern = 'example'
+action = "save"
+output_type = "rnews"
+output_path = "/var/spool/news/postfilter-ng/example.rnews"
+
+[[ban_rule]]
+id = "example-save-mbox"
+enabled = false
+priority = 100
+description = "Append the complete article to an mbox file with locking."
+target = "subject"
+match_type = "regex"
+pattern = 'example'
+action = "save"
+output_type = "mbox"
+output_path = "/var/spool/news/postfilter-ng/example.mbox"
+
+[[ban_rule]]
+id = "example-save-maildir"
+enabled = false
+priority = 100
+description = "Write one complete article into the Maildir new directory."
+target = "subject"
+match_type = "regex"
+pattern = 'example'
+action = "save"
+output_type = "maildir"
+output_path = "/var/spool/news/postfilter-ng/example-maildir"
+
+[[ban_rule]]
+id = "example-save-message-directory"
+enabled = false
+priority = 100
+description = "Write one complete article per uniquely named file."
+target = "subject"
+match_type = "regex"
+pattern = 'example'
+action = "save"
+output_type = "message"
+output_path = "/var/spool/news/postfilter-ng/example-messages"
+
+[[ban_rule]]
+id = "example-mail-article"
+enabled = false
+priority = 100
+description = "Send the complete article through paths.sendmail without a shell."
+target = "subject"
+match_type = "regex"
+pattern = 'example'
+action = "save"
+output_type = "mail"
+save_format = "mail"
+mail_recipients = ["newsmaster@example.invalid"]

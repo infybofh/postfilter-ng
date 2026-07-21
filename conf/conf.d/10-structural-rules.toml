@@ -1,0 +1,160 @@
+###############################################################################
+# Structural policy lists adapted from the operational rules.conf.
+#
+# Scope any array-of-table rule to one article type by adding:
+#
+#   article_types = ["text"]
+#
+# or:
+#
+#   article_types = ["binary"]
+#
+# Omit the field for shared structural policy. Most rules in this
+# file remain shared. Forged headers, invalid groups and dangerous
+# crossposts remain policy failures for both text and binary
+# hierarchies. Content-Type rules normally apply only to text articles;
+# the default binary profile skips `style.content_type` before they are reached.
+###############################################################################
+
+moderated_exceptions = [
+  "^fr\\.misc\\.bavardages\\.dinosaures$",
+  "^alt\\.sysadmin\\.recovery$",
+  "^alt\\.tech-support\\.recovery$",
+  "^alt\\.dev\\.null$",
+  "^alt\\.hackers$",
+  "^aioe\\.test$"
+]
+
+html_allowed_groups = ["^clari\\.", "^de\\.test", "html", "www", "php"]
+html_patterns = [
+  "<body\\b[^>]*>.*?</body>",
+  "<html\\b[^>]*>.*?</html>",
+  "<a\\s+href\\b[^>]*>.*?</a>",
+  "<iframe\\b[^>]*>.*?</iframe>",
+  "<style\\b[^>]*>.*?</style>",
+  "<script\\b[^>]*>.*?</script>"
+]
+
+forbidden_groups = [
+  "\\.teen", "\\.pedo", "^alt\\.checkmate$", "^rec\\.arts\\.drwho$",
+  "^alt\\.usenet\\.kooks$", "^alt\\.fan\\.rush-limbaugh$",
+  "^de\\.soc\\.arbeitslos$", "^de\\.soc\\.recht\\.arbeit\\+soziales$",
+  "^de\\.soc\\.recht\\.arbeitslos$", "^de\\.admin\\.news\\.groups$",
+  "^sci\\.math$", "^sci\\.physics$"
+]
+
+[[content_type_rule]]
+id = "control-content-types"
+enabled = true
+group_pattern = "^control\\."
+allowed_pattern = "^(?:text/plain|multipart/mixed|application/news-groupinfo|application/news-checkgroups)"
+
+[[content_type_rule]]
+id = "signed-content-types"
+enabled = true
+group_pattern = "(?:pgp|gpg)"
+allowed_pattern = "^(?:text/plain|multipart/signed)"
+
+[[content_type_rule]]
+id = "de-test-html"
+enabled = true
+group_pattern = "^de\\.test"
+allowed_pattern = "^(?:text/plain|text/html|multipart/alternative)"
+
+[[forbidden_header_rule]]
+id = "protect-complaint-headers"
+enabled = true
+name_pattern = "Complaint"
+exception_pattern = "^X-Complaints-To$"
+
+[[forbidden_header_rule]]
+id = "protect-posting-headers"
+enabled = true
+name_pattern = "(?:Post|NNTP)"
+exception_pattern = "^(?:NNTP-Posting-Host|NNTP-Posting-Date)$"
+
+[[forbidden_header_rule]]
+id = "protect-x-trace"
+enabled = true
+name_pattern = "X-Trace"
+exception_pattern = "^X-Trace$"
+
+[[forbidden_header_rule]]
+id = "protect-path"
+enabled = true
+name_pattern = "Path"
+exception_pattern = "^Path$"
+
+[[forbidden_header_rule]]
+id = "protect-injection-info"
+enabled = true
+name_pattern = "Injection-Info"
+exception_pattern = "^Injection-Info$"
+
+[[forbidden_header_rule]]
+id = "forged-abuse-header"
+enabled = true
+name_pattern = "abuse"
+exception_pattern = "(?!)"
+
+[[forbidden_crosspost]]
+id = "alt-with-other-hierarchies"
+enabled = false
+left = "(?:^|,)alt\\."
+right = "(?:^|,)(?:comp|news|rec|sci|soc)\\."
+
+###############################################################################
+# Operational forbidden-crosspost policies adapted from the existing rules.conf.
+# These rules reject only when the article targets more than one newsgroup and
+# at least one target matches `left`.  `right = ','` therefore retains the old
+# policy meaning: the named group/hierarchy may be posted to alone, but not
+# crossposted anywhere else.
+###############################################################################
+
+[[forbidden_crosspost]]
+id = "forbid-crosspost-it-test"
+enabled = true
+left = 'it\.test'
+right = ','
+
+[[forbidden_crosspost]]
+id = "forbid-crosspost-na-na-email"
+enabled = true
+left = 'news\.admin\.net-abuse\.email'
+right = ','
+
+[[forbidden_crosspost]]
+id = "forbid-crosspost-can"
+enabled = true
+left = 'can\.'
+right = ','
+
+[[forbidden_crosspost]]
+id = "forbid-crosspost-alt-checkmate"
+enabled = true
+left = 'alt\.checkmate'
+right = ','
+
+[[forbidden_crosspost]]
+id = "forbid-crosspost-alt-usenet-kooks"
+enabled = true
+left = 'alt\.usenet\.kooks'
+right = ','
+
+[[forbidden_crosspost]]
+id = "forbid-crosspost-eternal-september"
+enabled = true
+left = 'eternal\-september\.'
+right = ','
+
+[[forbidden_crosspost]]
+id = "forbid-crosspost-alt"
+enabled = true
+left = 'alt\.'
+right = ','
+
+[[forbidden_crosspost]]
+id = "forbid-crosspost-rec-arts-tv"
+enabled = true
+left = 'rec\.arts\.tv'
+right = ','
