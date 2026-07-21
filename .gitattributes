@@ -1,5 +1,0 @@
-* text=auto eol=lf
-
-*.png binary
-*.sqlite3 binary
-*.db binary
