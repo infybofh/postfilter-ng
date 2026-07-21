@@ -1,0 +1,18 @@
+From: Example User <example@example.invalid>
+Newsgroups: local.test
+Subject: Accepted PGP/MIME signature
+Date: Tue, 21 Jul 2026 10:00:00 +0000
+Message-ID: <accepted-pgp-mime@postfilter.invalid>
+Content-Type: multipart/signed; protocol="application/pgp-signature"; boundary="signed"
+
+--signed
+Content-Type: text/plain; charset=UTF-8
+
+This is the signed body.
+--signed
+Content-Type: application/pgp-signature; name="signature.asc"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="signature.asc"
+
+aGVsbG8tc2lnbmF0dXJl
+--signed--

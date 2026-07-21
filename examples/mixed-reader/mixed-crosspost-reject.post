@@ -1,0 +1,7 @@
+From: Tester <tester@example.invalid>
+Newsgroups: it.test,alt.binaries.example
+Subject: Mixed crosspost must be rejected
+Date: Tue, 21 Jul 2026 09:00:00 +0000
+Message-ID: <mixed-crosspost-reject@postfilter.invalid>
+
+This article targets one text group and one binary group.

@@ -1,0 +1,17 @@
+###############################################################################
+# PER-GROUP SENDER AUTHORISATION DATABASE
+#
+# For each posted group, Postfilter-NG looks for <group>.dat.  If the file exists,
+# the normalised From address must appear on a non-comment line.  If it does not
+# exist, that group has no UserDB restriction.  Group names are validated before
+# being used as file names, preventing path traversal.
+###############################################################################
+
+[modules]
+userdb = true
+
+[userdb]
+directory = "/etc/news/postfilter-ng/userdb"
+
+# See example.group.dat.  Entries are case-insensitive normalised mailbox values,
+# one per line; display names and angle brackets should not be included.

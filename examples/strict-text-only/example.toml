@@ -1,0 +1,37 @@
+###############################################################################
+# STRICT TEXT-ONLY READER EXAMPLE
+###############################################################################
+# In text-only mode every article uses the text policy even when the group name
+# looks binary.  This prevents an accidental configuration change in the active
+# file from enabling binary payloads.
+###############################################################################
+
+[article_types]
+mode = "text-only"
+
+[article_types.text.limits]
+max_body_size = 32768
+max_header_size = 8192
+max_total_size = 40960
+max_body_scan_bytes = 32768
+max_line_length = 1000
+max_crosspost = 5
+max_followup = 3
+max_hierarchies_post = 2
+max_hierarchies_followup = 1
+
+[article_types.text.content]
+allow_html = false
+allow_uuencode = false
+allow_yenc = false
+
+[article_types.text.checks]
+skip = []
+
+[article_types.text.save_rejected]
+# Example focused debugging: save only attempts to post encoded binaries.
+mode = "selected"
+reason_codes = ["PF-BODY-052", "PF-BODY-062"]
+compatibility_codes = []
+rule_ids = []
+subdirectory = "text"

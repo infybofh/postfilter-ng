@@ -1,0 +1,7 @@
+From: Example User <example@example.invalid>
+Newsgroups: local.test
+Subject: Raw client fixture without Path
+Date: Mon, 20 Jul 2026 12:00:00 +0200
+Message-ID: <raw-client-example@postfilter.invalid>
+
+This file intentionally has no Path header.

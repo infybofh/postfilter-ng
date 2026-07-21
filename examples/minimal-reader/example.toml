@@ -1,0 +1,32 @@
+###############################################################################
+# MINIMAL / FIRST-BOOT EXAMPLE
+#
+# This fragment is intentionally conservative.  It keeps structural validation
+# and header safety, but disables reputation, account-history and content-policy
+# modules while the administrator verifies integration with INN in audit mode.
+###############################################################################
+
+[policy]
+mode = "audit"
+action_on_accept = "accept"
+action_on_reject = "save"
+
+[modules]
+# Structural, group, date and header modules remain at their main-config values.
+rbl = false
+uribl = false
+surbl = false
+tor = false
+badwords = false
+banlist = false
+access = false
+custom = false
+userdb = false
+
+[headers.sender]
+# Preserve user-supplied Sender by default.  Sender may differ from From and can
+# be meaningful to clients and human correspondents; modification is opt-in.
+mode = "preserve"
+
+# From is not exposed as a transformation setting: Postfilter-NG always preserves
+# the author-supplied From header.  Rules may inspect it but never rewrite it.

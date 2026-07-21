@@ -1,0 +1,18 @@
+From: Example User <example@example.invalid>
+Newsgroups: local.test
+Subject: Rejected email-style attachment
+Date: Tue, 21 Jul 2026 10:00:00 +0000
+Message-ID: <rejected-mixed@postfilter.invalid>
+Content-Type: multipart/mixed; boundary="mixed"
+
+--mixed
+Content-Type: text/plain
+
+See attachment.
+--mixed
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="file.zip"
+
+QUJDRA==
+--mixed--

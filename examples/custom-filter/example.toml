@@ -1,0 +1,18 @@
+###############################################################################
+# LOCAL CUSTOM PERL FILTER EXAMPLE
+#
+# custom.pm is the code-based extension point. The TOML
+# configuration itself is data and is never executed as Perl.  The engine keeps
+# the last successfully loaded custom coderef if an edited file becomes invalid.
+###############################################################################
+
+[modules]
+custom = true
+
+[custom]
+module_file = "/etc/news/postfilter-ng/custom.pm"
+
+# accept: log the custom error and continue fail-open.
+# reject: turn load/runtime errors into PF-RULE-063.
+# Both values are covered by regression tests.
+on_error = "accept"

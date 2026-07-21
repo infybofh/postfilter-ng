@@ -1,0 +1,14 @@
+From: Example User <example@example.invalid>
+Newsgroups: local.test
+Subject: Accepted inline GnuPG signature
+Date: Tue, 21 Jul 2026 10:00:00 +0000
+Message-ID: <accepted-pgp-signature@postfilter.invalid>
+Content-Type: text/plain; charset=UTF-8
+
+This is an ordinary signed discussion message.
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v2
+
+aGVsbG8gdGhpcyBpcyBhIHNob3J0IHN5bnRoZXRpYyBzaWduYXR1cmU=
+-----END PGP SIGNATURE-----

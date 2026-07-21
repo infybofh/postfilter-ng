@@ -1,0 +1,90 @@
+###############################################################################
+# BANLIST EXAMPLES
+#
+# The historical rules below were tempting but unsafe:
+#
+#   pattern = 'Carroll@'
+#     Unanchored, case handling is implicit and it searches whichever raw field
+#     happened to be selected.  Display names may create false positives.
+#
+#   pattern = '@noSPAM'
+#     Blocks every mailbox containing the substring, not one abusive identity.
+#
+#   pattern = 'bofh.team'
+#     In regex syntax '.' means any character; the literal domain is bofh\.team.
+#
+# Prefer parsed targets such as from.address.  They compare the normalised email
+# address without the display name and make ^...$ anchoring meaningful.
+###############################################################################
+
+[[ban_rule]]
+id = "from-steve-carroll-normalized-variants"
+enabled = true
+priority = 2000
+description = "Steve Carroll mailbox and known one-letter spelling variants."
+target = "from.address"
+match_type = "regex"
+
+# Matches:
+#   stevecarroll@nospam.none
+#   stevcarroll@nospam.none
+#   stevecarrol@nospam.none
+#   stevcarrol@nospam.none
+# It does NOT match a different domain, a suffix after .none or a display name.
+pattern = '^stev(?:e)?carrol{1,2}@nospam\.none$'
+case_sensitive = false
+
+action = "reject"
+reason_code = "PF-RULE-201"
+legacy_code = 34
+response = "Posting rejected by local policy"
+save_article = true
+log_match = true
+exclude_profiles = ["administrators"]
+
+[[ban_rule]]
+id = "user-agent-newssync-silent-discard"
+enabled = false
+priority = 1000
+description = "Example of INN's documented DROP action for a known posting bot."
+target = "header.User-Agent"
+match_type = "contains"
+pattern = "newsSync"
+case_sensitive = false
+
+# drop returns the special DROP result to nnrpd: the client is told the article
+# was accepted while INN discards it.  Use only where silent discard is intended.
+action = "drop"
+reason_code = "PF-RULE-203"
+legacy_code = 34
+response = "Article discarded by local policy"
+save_article = true
+log_match = true
+
+[[ban_rule]]
+id = "score-suspicious-path-token"
+enabled = false
+priority = 500
+description = "Add to a named score instead of rejecting on one weak signal."
+target = "header.Path"
+match_type = "regex"
+pattern = '(?:^|!)suspicious-relay(?:!|$)'
+case_sensitive = false
+action = "score"
+score_variable = "spam-signals"
+score = 4
+save_article = false
+log_match = true
+
+[[ban_rule]]
+id = "limit-spam-signal-score"
+enabled = false
+priority = 100
+description = "Set the per-article maximum accepted value for spam-signals."
+target = "subject"
+match_type = "regex"
+pattern = '.*'
+action = "set_score_limit"
+score_variable = "spam-signals"
+maximum_score = 10
+log_match = false

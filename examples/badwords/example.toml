@@ -1,0 +1,67 @@
+###############################################################################
+# BADWORD / SCORING EXAMPLE
+#
+# A badword rule is not necessarily a literal "word".  It may be an exact text,
+# a substring or a Perl regular expression evaluated against Subject and/or the
+# bounded body scan.  Prefer "contains" for literal text: it avoids accidental
+# regex metacharacters and is easier for another administrator to review.
+###############################################################################
+
+[badwords]
+# Scores are accumulated independently for Subject and body.  A value greater
+# than the threshold rejects with the historical Subject/body code.  A threshold
+# of zero means that any positive score rejects, so choose it deliberately.
+max_subject_score = 20
+max_body_score = 20
+
+[[badword]]
+id = "internal-test-marker"
+enabled = true
+description = "Operational testivo marker used to verify scoring and saving."
+
+# match_type may be exact, contains or regex.  Because "testivo" contains no
+# regular-expression syntax, contains is the clearest and safest choice.
+pattern = "testivo"
+match_type = "contains"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 10
+body_score = 10
+action = "score"
+save_article = true
+log_match = true
+
+[[badword]]
+id = "example-regex-pharmaceutical-spam"
+enabled = false
+description = "Example of a bounded whitespace regex for a spam phrase."
+
+# TOML literal strings use single quotes, so the backslash reaches Perl exactly
+# as written.  Do not write ".*cheap.*viagra.*": unbounded dot-star expressions
+# can be slow and match far more text than intended.
+pattern = 'cheap\s{1,8}viagra'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 25
+body_score = 10
+action = "score"
+save_article = true
+log_match = true
+
+[[badword]]
+id = "example-immediate-subject-reject"
+enabled = false
+description = "Reject immediately when an exact administrative marker is in Subject."
+pattern = "[BLOCK-THIS-TEST]"
+match_type = "contains"
+case_sensitive = true
+targets = ["subject"]
+subject_score = 0
+body_score = 0
+action = "reject"
+reason_code = "PF-RULE-202"
+legacy_code = 28
+response = "Subject rejected by local policy"
+save_article = true
+log_match = true

@@ -1,0 +1,9 @@
+Path: not-for-mail
+From: Example User <example@example.invalid>
+Newsgroups: local.test
+Subject: INN hook-stage fixture
+Date: Mon, 20 Jul 2026 12:00:00 +0200
+Message-ID: <inn-hook-example@postfilter.invalid>
+Injection-Info: example.invalid; posting-host="127.0.0.1"
+
+This resembles the article structure delivered to filter_post by nnrpd.

@@ -1,0 +1,22 @@
+###############################################################################
+# STATIC HTML REPORT EXAMPLE
+#
+# postfilterctl report-generate reads SQLite and atomically replaces output_file.
+# A failure leaves the previous valid page in place.  Never point output_file at
+# a directory writable by the nnrpd account unless that is intentional.
+###############################################################################
+
+[html_report]
+enabled = true
+title = "Public Postfilter-NG statistics"
+hours = 168
+output_file = "/var/www/html/postfilter/index.html"
+stylesheet_file = "/usr/share/postfilter-ng/static/report.css"
+
+[html_report.privacy]
+# plain: publish the recovered identity (unsafe for a public page).
+# redacted: retain a small prefix/suffix.
+# hmac: stable, irreversible public pseudonym; recommended default.
+# encrypted: reversible token, decryptable only by postfilterctl and this key.
+identity_mode = "encrypted"
+key_file = "/etc/news/postfilter-ng/keys/html-report-privacy.key"

@@ -1,0 +1,21 @@
+###############################################################################
+# TOR MARKING WITH REVERSIBLE ENCRYPTION
+#
+# node_scope="all" uses the service's complete TOR-node list, not exit nodes
+# only.  local_tor_networks covers private interfaces used as local TOR endpoints
+# and is matched with real CIDR logic rather than a regex such as "172.16".
+###############################################################################
+
+[tor]
+enabled = true
+node_scope = "all"
+action = "mark"
+local_tor_networks = ["172.16.0.0/12"]
+
+[tor.header]
+# none      -> X-Postfilter-TOR: yes
+# plain     -> X-Postfilter-TOR: <client IP>
+# encrypted -> versioned authenticated ciphertext; not recognisable/decryptable
+#              by users without the dedicated key.
+mode = "encrypted"
+key_file = "/etc/news/postfilter-ng/keys/tor-header-encryption.key"

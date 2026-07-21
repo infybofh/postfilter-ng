@@ -1,0 +1,38 @@
+###############################################################################
+# AUTHENTICATED-ONLY READER EXAMPLE
+#
+# Use this model when readers.conf guarantees a non-empty authenticated username
+# for every client allowed to POST.  Rate limits are then keyed by auth_user,
+# rather than by source IP or reverse-DNS domain.
+###############################################################################
+
+[access]
+server_type = "auth"
+
+# Empty user identifiers are still listed explicitly as public identities.  On
+# an authenticated-only service they should never reach the POST path; if they
+# do, they are not silently treated as an authenticated account.
+public_user_ids = [""]
+
+# Optional regex for synthetic public usernames.  Leave empty unless your INN
+# configuration assigns a known value such as "anonymous".
+public_user_pattern = ""
+
+[access.authenticated_limits]
+# Long window limits use access.period_seconds from the main config.
+max_articles = 1000
+max_total_errors = 100
+max_total_size = 104857600
+max_total_groups = 5000
+max_total_followups = 5000
+
+# Short window limits use access.short_period_seconds.
+max_short_articles = 100
+max_short_errors = 20
+max_short_size = 10485760
+max_short_groups = 500
+max_short_followups = 500
+
+# Per-identity duplicate threshold.  This can be lower than the absolute hard
+# ceiling, but never higher than limits.absolute_multipost_limit.
+multipost = 10

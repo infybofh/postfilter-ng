@@ -1,0 +1,88 @@
+###############################################################################
+# Strict MIME and Base64 attachment policy for text articles
+###############################################################################
+# MIME lists use case-insensitive anchored globs, not Perl regular expressions.
+# Keep this policy under the text profile.  Do not copy it into binary.mime
+# unless binary attachments are intentionally subject to the same rules.
+
+[article_types.text.mime]
+enabled = true
+
+# Reject the ordinary email container used for one message plus attachments.
+reject_multipart_mixed = true
+
+# Permit only multipart subtypes named below.  `multipart/signed` is needed for
+# PGP/MIME and S/MIME signatures; `multipart/alternative` is common for clients
+# producing plain and HTML alternatives.  Existing HTML policy still applies.
+reject_unlisted_multipart = true
+allowed_multipart_types = [
+    "multipart/alternative",
+    "multipart/signed",
+]
+
+# Catch both explicit attachments and inline/name parameters commonly used to
+# hide attachment semantics.
+reject_attachment_disposition = true
+reject_filename_parameter = true
+
+# Some PGP/S/MIME libraries label detached signatures as attachments.  Permit
+# that metadata only for the explicit cryptographic media allow-list.
+allow_attachment_disposition_for_allowed_media = true
+
+# Strict parsing.  Change to accept only after understanding that malformed MIME
+# will be logged but the MIME-specific reject will be skipped.
+on_malformed = "reject"
+max_mime_depth = 8
+max_mime_parts = 100
+
+# Explicit exceptions evaluated before the generic application/* prohibition.
+allowed_media_types = [
+    "application/pgp-signature",
+    "application/pgp-keys",
+    "application/pkcs7-signature",
+    "application/x-pkcs7-signature",
+    "application/pkix-cert",
+    "application/x-x509-ca-cert",
+    "application/pem-certificate-chain",
+]
+allowed_media_max_decoded_bytes = 262144
+
+forbidden_media_types = [
+    "application/*",
+    "audio/*",
+    "font/*",
+    "image/*",
+    "message/rfc822",
+    "model/*",
+    "video/*",
+]
+
+# A large unlabelled Base64 run must satisfy BOTH line and decoded-byte limits.
+# Raise these values for groups which routinely discuss large encoded samples.
+base64_heuristic_enabled = true
+base64_min_contiguous_lines = 12
+base64_min_line_length = 60
+
+# Zero means no upper line-length limit.  A non-zero value can reduce false
+# positives in unusual technical groups, but it also creates an evasion route
+# for encoders which choose wider lines.
+base64_max_line_length = 0
+base64_min_decoded_bytes = 4096
+
+# Independently reject one enormous Base64 line once its estimated decoded size
+# reaches this value.  This closes the obvious one-line evasion of the ordinary
+# contiguous-line threshold.  Zero disables this special case.
+base64_single_line_min_decoded_bytes = 8192
+base64_ignore_quoted_lines = true
+base64_ignore_indented_lines = false
+
+# Complete bounded armour blocks are excluded from the heuristic.  The labels
+# must match the text between BEGIN/END exactly, without the dashes.
+allowed_armored_block_types = [
+    "PGP SIGNATURE",
+    "PGP PUBLIC KEY BLOCK",
+    "PGP PRIVATE KEY BLOCK",
+    "CERTIFICATE",
+    "X509 CERTIFICATE",
+]
+armored_block_max_bytes = 262144

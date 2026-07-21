@@ -1,0 +1,33 @@
+###############################################################################
+# PUBLIC READER EXAMPLE
+#
+# Every posting identity is treated as public.  Limits are checked by source IP
+# and, when available, registered client domain.  SQLite hidden lookup tokens
+# keep the counters stable even if database privacy mode changes later.
+###############################################################################
+
+[access]
+server_type = "public"
+public_user_ids = ["", "anonymous", "public"]
+public_user_pattern = ""
+enable_domain_check = true
+period_seconds = 86400
+short_period_seconds = 600
+
+[limits]
+# A profile may replace the default, but never exceed the absolute ceiling.
+default_multipost_limit = 2
+absolute_multipost_limit = 100
+
+[access.public_limits]
+max_articles = 200
+max_short_articles = 20
+max_total_errors = 50
+max_short_errors = 10
+max_total_size = 10485760
+max_short_size = 1048576
+max_total_groups = 500
+max_short_groups = 50
+max_total_followups = 500
+max_short_followups = 50
+multipost = 2

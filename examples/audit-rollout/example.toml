@@ -1,0 +1,41 @@
+###############################################################################
+# AUDIT ROLLOUT EXAMPLE
+#
+# Copy these sections into the active configuration; this is intentionally a
+# fragment, not a replacement for conf/postfilter.toml.  Audit mode executes the
+# complete filter and stores the technical result, but normally tells nnrpd to
+# accept the article.  It is the recommended first deployment phase.
+###############################################################################
+
+[policy]
+# "audit" prevents a new rule set from unexpectedly blocking users.  The first
+# failing check is stored as would_reject=1 with both symbolic and numeric codes.
+mode = "audit"
+
+# Articles that pass every check are accepted normally.
+action_on_accept = "accept"
+
+# In audit, "save" means: accept the article for nnrpd, but also save a diagnostic
+# .post copy because the technical verdict was reject.  This is useful for
+# reviewing false positives before switching to enforce.
+action_on_reject = "save"
+
+# Include the human-readable filter reason in a real reject response.  This has
+# no blocking effect while mode="audit", except for server_status="closed".
+show_error_code = true
+
+[logging]
+# Level 7 includes final results, identities, pipeline decisions, structural
+# summaries, header changes, SQLite details and DNS reputation queries.  Use 9
+# only for short debugging sessions because it records every internal step.
+verbosity = 7
+include_timing = true
+include_rule_ids = true
+log_accepted = true
+log_rejected = true
+
+[html_report]
+# A report is generated only when postfilterctl report-generate is run by cron or
+# the supplied systemd timer.  The nnrpd process never renders HTML during POST.
+enabled = true
+hours = 336

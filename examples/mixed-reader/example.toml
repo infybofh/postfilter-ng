@@ -1,0 +1,147 @@
+###############################################################################
+# MIXED TEXT + BINARY READER EXAMPLE
+###############################################################################
+# Copy these tables into the main configuration or a dedicated conf.d fragment.
+# The main release configuration already contains the complete historical glob
+# list; this example repeats a shorter list so the operating principle is clear.
+###############################################################################
+
+[article_types]
+mode = "mixed"
+pattern_syntax = "glob"
+mixed_crosspost_policy = "reject"
+
+# Globs are anchored shell-style patterns, not regexes.  For example:
+#   "alt.binaries.*" matches alt.binaries.example
+#   "*.pictures*"    matches free.pictures.test
+#   "*.bin*"         broadly catches names containing .bin
+binary_group_patterns = [
+    "*.bin*",
+    "alt.binaries.*",
+    "alt.dvdnordic.*",
+    "*.cd.image*",
+    "*.files.images*",
+    "*.mp3*",
+    "*music.bin*",
+    "*.pictures*",
+    "*porno.images*",
+    "*images*",
+    "*.warez*",
+]
+
+[article_types.text.limits]
+max_body_size = 32768
+max_header_size = 8192
+max_total_size = 40960
+max_body_scan_bytes = 32768
+
+[article_types.text.content]
+allow_yenc = false
+allow_uuencode = false
+allow_html = false
+
+[article_types.text.checks]
+skip = []
+
+[article_types.text.save_rejected]
+# Save only the two binary-encoding violations while diagnosing attempts to put
+# attachments into text groups.  Other text rejects remain only in SQLite/syslog.
+mode = "selected"
+reason_codes = ["PF-BODY-052", "PF-BODY-062"]
+compatibility_codes = []
+rule_ids = []
+subdirectory = "text"
+
+[article_types.binary.limits]
+max_body_size = 10485760
+max_header_size = 65536
+max_total_size = 10551296
+max_body_scan_bytes = 1048576
+
+[article_types.binary.content]
+allow_yenc = true
+allow_uuencode = true
+allow_html = false
+
+[article_types.binary.checks]
+# Binary segments are not human prose.  Disable checks whose signal becomes
+# meaningless or whose cost grows with encoded payload size.
+skip = [
+    "style.line_statistics",
+    "style.html",
+    "style.content_type",
+    "badwords",
+    "uribl",
+]
+
+[article_types.binary.save_rejected]
+# Keep disabled by default.  During a focused test, use selected with one exact
+# reason code or rule ID rather than saving every multi-megabyte rejection.
+mode = "none"
+reason_codes = []
+compatibility_codes = []
+rule_ids = []
+subdirectory = "binary"
+
+[access]
+# Text and binary traffic get independent historical rate counters.
+separate_counters_by_article_type = true
+
+###############################################################################
+# OPTIONAL TYPE-SCOPED RULE EXAMPLES
+###############################################################################
+
+# This prose scanner is evaluated only for text articles.  The explicit scope
+# remains useful even if the binary profile already skips the whole badwords
+# stage: it documents intent and protects against a future local skip change.
+[[badword]]
+id = "example-text-only-pharmaceutical-phrase"
+enabled = false
+article_types = ["text"]
+description = "Disabled example of a prose-only phrase rule."
+pattern = '(?i)cheap\s+viagra'
+match_type = "regex"
+case_sensitive = false
+targets = ["subject", "body"]
+subject_score = 10
+body_score = 4
+action = "score"
+save_article = false
+log_match = true
+
+# This subject rule is evaluated only for binary-world articles.  A real site
+# could use it temporarily to diagnose or block one release-name convention
+# without running the expression against all discussion traffic.
+[[ban_rule]]
+id = "example-binary-release-name"
+enabled = false
+article_types = ["binary"]
+priority = 500
+description = "Disabled example of a binary-world subject convention rule."
+target = "subject"
+match_type = "contains"
+pattern = "FORBIDDEN-RELEASE-NAME"
+case_sensitive = false
+action = "reject"
+reason_code = "PF-RULE-250"
+legacy_code = 34
+response = "Binary release name rejected by local policy"
+save_article = true
+log_match = true
+
+# A separate binary access profile can raise byte/article quotas for authenticated
+# uploaders while leaving text quotas unchanged.  The exact limits below are only
+# examples and must be sized for the local service and hardware.
+[[access_profile]]
+id = "example-authenticated-binary-uploader"
+enabled = false
+article_types = ["binary"]
+priority = 900
+identity_type = "ID"
+match_type = "regex"
+pattern = '^binary-uploader-[0-9]+$'
+limits.max_articles = 20000
+limits.max_short_articles = 1000
+limits.max_total_size = 214748364800
+limits.max_short_size = 10737418240
+limits.multipost = 100

@@ -1,0 +1,32 @@
+###############################################################################
+# MIXED PUBLIC + AUTHENTICATED READER EXAMPLE
+#
+# Empty/synthetic public IDs are limited by source IP and optional client domain.
+# All other non-empty IDs use the authenticated-user limits.
+###############################################################################
+
+[access]
+server_type = "both"
+public_user_ids = ["", "anonymous", "public"]
+public_user_pattern = ""
+enable_domain_check = true
+period_seconds = 86400
+short_period_seconds = 600
+
+[access.public_limits]
+max_articles = 100
+max_short_articles = 10
+max_total_errors = 30
+max_short_errors = 5
+max_total_size = 10485760
+max_short_size = 1048576
+multipost = 2
+
+[access.authenticated_limits]
+max_articles = 2000
+max_short_articles = 200
+max_total_errors = 200
+max_short_errors = 30
+max_total_size = 1073741824
+max_short_size = 104857600
+multipost = 20

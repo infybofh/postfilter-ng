@@ -1,0 +1,33 @@
+###############################################################################
+# FULLY CONFIGURABLE TRUSTED ADMINISTRATOR PROFILE
+#
+# Conditions can include authenticated users, source CIDRs, From/group regexes
+# and arbitrary header matches.  match_mode="any" accepts any supplied condition;
+# "all" requires all supplied conditions.  First matching profile wins.
+###############################################################################
+
+[[trusted_profile]]
+id = "administrators"
+enabled = true
+priority = 1000
+match_mode = "any"
+authenticated_users = ["ivo", "newsadmin"]
+source_networks = ["127.0.0.1/32", "::1/128"]
+
+# Correct domain regex: escape the literal dot and anchor the normalised address.
+# Incorrect: '@bofh.team' (dot is wildcard; no end anchor).
+from_pattern = '(?i)^[^@\s]+@bofh\.team$'
+
+# Trust does not mean malformed data should reach INN.  This profile skips abuse,
+# reputation and rate controls but leaves article syntax, sizes, groups and MIME
+# validation active.  full_bypass=true is available only for controlled injectors.
+skip_checks = [
+  "rate_limit",
+  "rbl",
+  "uribl",
+  "surbl",
+  "tor",
+  "badwords",
+  "banlist"
+]
+full_bypass = false

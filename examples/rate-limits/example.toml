@@ -1,0 +1,41 @@
+###############################################################################
+# ACCESS-PROFILE OVERRIDE EXAMPLE
+#
+# Profiles are evaluated by descending priority.  The first matching profile for
+# the current identity type wins.  identity_type is IP, DN (registered domain) or
+# ID (authenticated username).  CIDR is valid only for IP.
+###############################################################################
+
+[[access_profile]]
+id = "trusted-office-network"
+enabled = true
+priority = 500
+identity_type = "IP"
+match_type = "cidr"
+pattern = "172.16.0.0/12"
+
+[access_profile.limits]
+max_articles = 5000
+max_short_articles = 500
+max_total_errors = 500
+max_short_errors = 50
+max_total_size = 1073741824
+max_short_size = 107374182
+max_total_groups = 20000
+max_short_groups = 2000
+max_total_followups = 20000
+max_short_followups = 2000
+multipost = 20
+
+[[access_profile]]
+id = "specific-automation-account"
+enabled = false
+priority = 1000
+identity_type = "ID"
+match_type = "exact"
+pattern = "approved-poster"
+
+[access_profile.limits]
+max_articles = 10000
+max_short_articles = 1000
+multipost = 50
