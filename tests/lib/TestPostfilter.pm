@@ -243,10 +243,10 @@ sub base_config {
         },
         timeouts => {
             dns_query_seconds     => 1,
-            dns_total_seconds     => 2,
+            dns_total_seconds     => 1,
             future_grace_seconds  => 3_600,
-            max_processing_ms     => 5_000,
-            on_processing_timeout => 'accept',
+            max_processing_ms     => 2_700,
+            on_processing_timeout => 'reject',
             too_old_seconds       => 31_536_000,
         },
         headers => {
@@ -322,6 +322,7 @@ sub base_config {
         },
         keys => {},
         retention => {
+            config_generations => 32,
             events        => 'forever',
             rule_hits     => 'forever',
             saved_articles => 'forever',

@@ -251,3 +251,9 @@ bounded PGP/GnuPG signatures, public keys and certificates.  Tune both
 `base64_min_contiguous_lines` and `base64_min_decoded_bytes`: lowering only one
 can create false positives in technical groups.  `on_malformed = "accept"` is a
 fail-open option for MIME parsing only and does not disable other checks.
+
+## Operational budgets and generation retention
+
+The shipped defaults cap each DNS query and the complete DNS reputation phase at one second. `max_processing_ms = 2700` applies to bounded checks and header transformations; timeout handling defaults to rejection. Level-9 logging emits per-phase timings, while the final result includes `pipeline_ms` and `finalization_ms`.
+
+Configuration generations are content-addressed. Identical effective TOML sets reuse the same generation across nnrpd processes. `retention.config_generations = 32` keeps the active generation and recent rollback history; zero disables pruning.

@@ -58,8 +58,7 @@ Tests and CLI distinguish three representations:
 
 The source TOML set is parsed by TOML::Tiny.  Invalid individual regex entries
 are disabled when isolation is safe; a malformed TOML generation is never
-activated.  A successful load writes canonical JSON generations and
-`last-known-good.json` atomically.  Bad reloads retain the previous in-memory
+activated.  A successful load assigns a content-derived generation identifier. Identical effective configurations reuse one canonical JSON file across nnrpd processes; `retention.config_generations` bounds historical files. `last-known-good.json` is replaced only when the effective generation changes.  Bad reloads retain the previous in-memory
 configuration.  New processes can start from last-known-good, then from a small
 embedded fail-open configuration as a final availability measure.
 
@@ -97,5 +96,4 @@ authentication; stable pseudonyms use HMAC-SHA-256.
 `Postfilter::Checks::Attachments` is a separate pipeline stage because MIME
 attachments and unlabelled Base64 are different from yEnc/uuencode markers.  It
 uses the already selected article-type profile: text enables strict inspection,
-while binary disables it by default.  The stage is bounded by MIME depth, MIME
-part count, body scan bytes and the global article-processing deadline.
+while binary disables it by default.  The stage is bounded by MIME depth, MIME part count, body scan bytes and the check-and-transformation deadline. Context creation and preliminary logging are timed separately and do not consume that budget.

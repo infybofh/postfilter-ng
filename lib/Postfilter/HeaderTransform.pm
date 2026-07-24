@@ -412,11 +412,21 @@ sub _add_tor_header {
 
     if ($mode eq 'none') {
         $context->{headers}{$name} = 'yes';
+        $context->{logger}->headers(
+            'header_added',
+            header => $name,
+            mode   => 'marker',
+        );
         return;
     }
 
     if ($mode eq 'plain') {
         $context->{headers}{$name} = $context->{client_ip};
+        $context->{logger}->headers(
+            'header_added',
+            header => $name,
+            mode   => 'plain',
+        );
         return;
     }
 
@@ -441,10 +451,20 @@ sub _add_tor_header {
             error => $@ || 'unknown encryption error',
         );
         $context->{headers}{$name} = 'yes';
+        $context->{logger}->headers(
+            'header_added',
+            header => $name,
+            mode   => 'encryption-fallback-marker',
+        );
         return;
     }
 
     $context->{headers}{$name} = $encrypted;
+    $context->{logger}->headers(
+        'header_added',
+        header => $name,
+        mode   => 'encrypted',
+    );
     return;
 }
 

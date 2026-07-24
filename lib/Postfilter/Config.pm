@@ -31,6 +31,7 @@ last-known-good snapshot when TOML parsing is temporarily unavailable.
 
 =cut
 
+use Digest::SHA qw(sha256_hex);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
@@ -186,7 +187,7 @@ my %KNOWN_SECTION_KEY = (
     ) },
     'database.privacy' => { map { $_ => 1 } qw(identity_mode key_file) },
     retention => { map { $_ => 1 } qw(
-        events provider_health_seconds rule_hits saved_articles
+        config_generations events provider_health_seconds rule_hits saved_articles
     ) },
     modules => { map { $_ => 1 } qw(
         access attachments badwords banlist content custom dates groups headers rbl style
@@ -313,6 +314,7 @@ sub load {
     my $source_ok = eval {
         $config = $self->_load_source;
         $warnings = $self->validate_and_sanitize($config);
+        $self->_assign_generation($config, $warnings);
         $self->_save_generation($config, $warnings);
         $origin = 'source';
         1;
@@ -443,9 +445,7 @@ sub _load_source {
     }
 
     $config->{_meta} = {
-        generation => _generation_id(),
-        loaded_at  => now_iso(),
-        source     => $source,
+        source => $source,
     };
 
     return $config;
@@ -546,11 +546,39 @@ sub _source_mtime {
     return $maximum;
 }
 
-# Function: _save_generation
-# Purpose: Persists canonical generation JSON and replaces last-known-good.json atomically.
+# Function: _assign_generation
+# Purpose: Assigns a stable content-derived identifier to one validated effective configuration.
 # Parameters: $self, $config, $warnings
-# Operational notes: Failure behaviour is explicit in the function body and follows the caller’s
-#                    configured fail-open/fail-closed policy.
+# Operational notes: Volatile load timestamps are excluded.  Identical effective configuration
+#                    and warning sets therefore reuse one generation across nnrpd processes.
+sub _assign_generation {
+    my ($self, $config, $warnings) = @_;
+
+    my %effective = %{$config};
+    delete $effective{_meta};
+
+    my $fingerprint_input = JSON::PP->new->canonical->encode({
+        config   => \%effective,
+        warnings => $warnings,
+    });
+    my $digest = sha256_hex($fingerprint_input);
+
+    $config->{_meta} = {
+        digest     => $digest,
+        generation => 'cfg-' . substr($digest, 0, 20),
+        loaded_at  => now_iso(),
+        source     => $self->{source},
+    };
+
+    return;
+}
+
+# Function: _save_generation
+# Purpose: Persists a canonical generation once, updates last-known-good only when it changes,
+#          and prunes old generation files.
+# Parameters: $self, $config, $warnings
+# Operational notes: Generation identity is content-derived.  Concurrent nnrpd startups may race
+#                    harmlessly to create the same atomic file, without producing unique copies.
 sub _save_generation {
     my ($self, $config, $warnings) = @_;
 
@@ -572,16 +600,78 @@ sub _save_generation {
         warnings => $warnings,
     });
 
-    atomic_write(
-        File::Spec->catfile($generation_directory, "$generation.json"),
-        $json,
-        0640,
+    my $generation_path = File::Spec->catfile(
+        $generation_directory,
+        "$generation.json",
     );
-    atomic_write(
-        File::Spec->catfile($state_directory, 'last-known-good.json'),
-        $json,
-        0640,
+    atomic_write($generation_path, $json, 0640)
+        unless _snapshot_generation($generation_path) eq $generation;
+
+    my $last_known_good_path = File::Spec->catfile(
+        $state_directory,
+        'last-known-good.json',
     );
+    atomic_write($last_known_good_path, $json, 0640)
+        unless _snapshot_generation($last_known_good_path) eq $generation;
+
+    $self->_prune_generation_files(
+        $generation_directory,
+        $generation,
+        $config->{retention}{config_generations},
+    );
+
+    return;
+}
+
+# Function: _snapshot_generation
+# Purpose: Reads a snapshot generation identifier without treating a missing or malformed file as
+#          fatal.
+# Parameters: $path
+# Operational notes: A malformed file returns an empty identifier and is atomically replaced by the
+#                    caller.
+sub _snapshot_generation {
+    my ($path) = @_;
+    return '' unless -r $path;
+
+    my $object = eval { JSON::PP->new->decode(slurp($path)) };
+    return '' if $@ || ref($object) ne 'HASH';
+    return '' unless ref($object->{config}) eq 'HASH';
+    return $object->{config}{_meta}{generation} // '';
+}
+
+# Function: _prune_generation_files
+# Purpose: Keeps the current generation plus the newest configured number of historical files.
+# Parameters: $self, $directory, $current_generation, $maximum
+# Operational notes: Zero disables pruning.  The active generation is never deleted, including
+#                    when an operator deliberately reverts to an older effective configuration.
+sub _prune_generation_files {
+    my ($self, $directory, $current_generation, $maximum) = @_;
+    return unless defined $maximum && $maximum > 0;
+
+    my $current_name = "$current_generation.json";
+    my @historical = grep {
+        File::Basename::basename($_) ne $current_name
+    } glob(File::Spec->catfile($directory, '*.json'));
+
+    @historical = sort {
+        ((stat($b))[9] // 0) <=> ((stat($a))[9] // 0)
+            || $b cmp $a
+    } @historical;
+
+    my $keep_historical = $maximum - 1;
+    $keep_historical = 0 if $keep_historical < 0;
+    return if @historical <= $keep_historical;
+
+    my $removed = 0;
+    for my $index ($keep_historical .. $#historical) {
+        next unless unlink $historical[$index];
+        $removed++;
+    }
+
+    $self->{logger}->pipeline(
+        'configuration_generations_pruned',
+        removed => $removed,
+    ) if $removed && $self->{logger};
 
     return;
 }
@@ -710,6 +800,14 @@ sub validate_and_sanitize {
     );
 
     _integer($config->{logging}, 'verbosity', 1, 9, \@warnings, 3);
+    _integer(
+        $config->{retention},
+        'config_generations',
+        0,
+        10_000,
+        \@warnings,
+        32,
+    );
 
     _enum(
         $config->{database},
@@ -922,13 +1020,14 @@ sub embedded_minimal {
             reload_interval_seconds          => 30,
         },
         retention => {
+            config_generations      => 32,
             events                  => 'forever',
             rule_hits               => 'forever',
             saved_articles          => 'forever',
             provider_health_seconds => 604_800,
         },
         timeouts => {
-            max_processing_ms => 1_500,
+            max_processing_ms => 2_700,
         },
         tor => {
             action     => 'allow',
@@ -1073,13 +1172,15 @@ sub _apply_defaults {
             max_urls_to_check        => 20,
         },
         timeouts => {
-            dns_query_seconds  => 2,
-            dns_total_seconds  => 10,
-            future_grace_seconds => 3_600,
-            max_processing_ms  => 1_500,
-            too_old_seconds    => 259_200,
+            dns_query_seconds     => 1,
+            dns_total_seconds     => 1,
+            future_grace_seconds  => 3_600,
+            max_processing_ms     => 2_700,
+            on_processing_timeout => 'reject',
+            too_old_seconds       => 259_200,
         },
         retention => {
+            config_generations => 32,
             # Event and rule history replaces legal.log and therefore defaults
             # to permanent retention.  Deletion is available only through an
             # explicit postfilterctl purge command.
@@ -1914,25 +2015,6 @@ sub _deep_merge {
     }
 
     return;
-}
-
-# Function: _generation_id
-# Purpose: Creates a human-sortable UTC generation identifier with a collision-resistant suffix.
-# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
-# Operational notes: Failure behaviour is explicit in the function body and follows the caller’s
-#                    configured fail-open/fail-closed policy.
-sub _generation_id {
-    my @time = gmtime;
-    return sprintf(
-        '%04d%02d%02dT%02d%02d%02dZ-%06x',
-        $time[5] + 1900,
-        $time[4] + 1,
-        $time[3],
-        $time[2],
-        $time[1],
-        $time[0],
-        int(rand(0xffffff)),
-    );
 }
 
 1;

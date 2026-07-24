@@ -92,14 +92,6 @@ sub new {
         $body,
     );
 
-    my $maximum_processing_ms =
-        $config->{timeouts}{max_processing_ms}
-        // 0;
-
-    my $deadline = $maximum_processing_ms > 0
-        ? $now + ($maximum_processing_ms / 1000)
-        : undef;
-
     my $self = bless {
         article_digest  => sha256_hex($digest_input),
         article_type    => $article_type,
@@ -120,7 +112,8 @@ sub new {
         config_is_copy  => 0,
         crypto          => $arguments{crypto},
         db              => $arguments{db},
-        deadline        => $deadline,
+        deadline        => undef,
+        deadline_started_at => undef,
         dns_started_at  => undef,
         final_action    => undef,
         followup_count  => scalar(@{$followups}),
@@ -143,7 +136,7 @@ sub new {
         newsgroups      => $newsgroups,
         notes           => [],
         pid             => $$,
-        processing_start => $now,
+        processing_start => $arguments{processing_start} // $now,
         received_at      => $now,
         received_at_int  => int($now),
         rule_hits        => [],
@@ -350,18 +343,41 @@ sub make_config_writable {
     return $self->{config};
 }
 
-=head2 deadline_exceeded() / remaining_processing_ms()
+=head2 start_processing_budget() / deadline_exceeded() / remaining_processing_ms()
 
-Helpers used by the pipeline and DNS subsystem to enforce the complete article
-processing budget.  A disabled deadline never expires.
+The article context measures total wall-clock latency from C<processing_start>,
+while the bounded filtering deadline begins explicitly after context creation,
+identity logging and trusted-profile resolution.  This prevents slow syslog
+routing from consuming the budget before the first article check.
 
 =cut
 
-# Function: deadline_exceeded
-# Purpose: Reports whether the complete article processing deadline has expired.
+# Function: start_processing_budget
+# Purpose: Starts the bounded check-and-transformation deadline once per article.
 # Parameters: $self
-# Operational notes: Failure behaviour is explicit in the function body and follows the caller’s
-#                    configured fail-open/fail-closed policy.
+# Operational notes: Repeated calls are harmless.  A zero max_processing_ms value leaves the
+#                    deadline disabled while total elapsed timing remains available.
+sub start_processing_budget {
+    my ($self) = @_;
+    return if defined $self->{deadline_started_at};
+
+    my $started_at = time;
+    my $maximum_processing_ms =
+        $self->{config}{timeouts}{max_processing_ms}
+        // 0;
+
+    $self->{deadline_started_at} = $started_at;
+    $self->{deadline} = $maximum_processing_ms > 0
+        ? $started_at + ($maximum_processing_ms / 1000)
+        : undef;
+
+    return;
+}
+
+# Function: deadline_exceeded
+# Purpose: Reports whether the bounded check-and-transformation deadline has expired.
+# Parameters: $self
+# Operational notes: A budget that has not started, or a configured zero limit, never expires.
 sub deadline_exceeded {
     my ($self) = @_;
     return 0 unless defined $self->{deadline};
@@ -369,16 +385,25 @@ sub deadline_exceeded {
 }
 
 # Function: remaining_processing_ms
-# Purpose: Returns milliseconds left in the complete article processing budget.
+# Purpose: Returns milliseconds left in the bounded check-and-transformation budget.
 # Parameters: $self
-# Operational notes: Failure behaviour is explicit in the function body and follows the caller’s
-#                    configured fail-open/fail-closed policy.
+# Operational notes: Returns undef when the deadline is disabled or has not started.
 sub remaining_processing_ms {
     my ($self) = @_;
     return undef unless defined $self->{deadline};
 
     my $remaining = ($self->{deadline} - time) * 1000;
     return $remaining > 0 ? $remaining : 0;
+}
+
+# Function: pipeline_elapsed_ms
+# Purpose: Returns wall-clock milliseconds since the bounded filtering budget began.
+# Parameters: $self
+# Operational notes: Returns zero before start_processing_budget is called.
+sub pipeline_elapsed_ms {
+    my ($self) = @_;
+    return 0 unless defined $self->{deadline_started_at};
+    return (time - $self->{deadline_started_at}) * 1000;
 }
 
 =head2 is_public_user()

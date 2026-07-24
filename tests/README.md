@@ -23,6 +23,8 @@ Test groups:
   headers, byte-preserving signed content and linear adversarial armour scans.
 - `19-live-deployment-regressions.t` — embedded-Perl hook loading, INN-compatible
   header deletion, runtime ownership initialization and database diagnostics.
+- `20-operational-hardening.t` — stable generation reuse/retention, delayed budget
+  start, phase timing, TOR-header observability and irreversible privilege drop.
 
 `sqlite-concurrency.py` uses Python's standard `sqlite3` module for WAL and
 schema stress. Repeat load testing through Perl DBI/DBD::SQLite on the target INN

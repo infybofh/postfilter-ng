@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026.07.5-rc3 — 2026-07-24
+
+Operational hardening from the first full day of live RC2 traffic.
+
+- reuses a content-derived configuration generation across identical nnrpd processes;
+- retains the current plus 31 historical configuration generations by default;
+- avoids rewriting unchanged generation and last-known-good snapshots;
+- caps both per-query and whole-article DNS reputation work at one second;
+- sets the bounded check/header budget to 2700 ms and fails closed on timeout;
+- starts that budget after context creation, identity logging and trusted-profile resolution;
+- adds timings for configuration, context, trusted profile, pipeline, headers, SQLite event and finalization;
+- adds `pipeline_ms` and `finalization_ms` to the final structured result;
+- logs TOR header creation without exposing its value;
+- drops installer real, effective and saved IDs with `POSIX::setgid`/`setuid`;
+- adds regressions for generation reuse, pruning, timing boundaries and TOR observability.
+
 ## 2026.07.5-rc2 — 2026-07-21
 
 Second release candidate with corrections verified during live deployment on an

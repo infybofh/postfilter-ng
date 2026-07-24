@@ -43,6 +43,7 @@ use File::Copy qw(copy);
 use File::Path qw(make_path remove_tree);
 use Fcntl qw(:DEFAULT);
 use Getopt::Long qw(GetOptions);
+use POSIX ();
 
 my %option = (
     config_dir     => '/etc/news/postfilter-ng',
@@ -859,12 +860,13 @@ sub _run_as_runtime_user {
         $ENV{USER} = $option{user};
         $ENV{LOGNAME} = $option{user};
 
-        # Assign the requested primary group and clear inherited root-only
-        # supplementary groups before dropping uid.
-        $( = $group_id;
+        # Clear inherited root-only supplementary groups, then drop real,
+        # effective and saved group/user IDs before executing postfilterctl.
         $) = "$group_id $group_id";
-        $< = $user_id;
-        $> = $user_id;
+        POSIX::setgid($group_id) == 0
+            or die "Unable to set gid $group_id: $!\n";
+        POSIX::setuid($user_id) == 0
+            or die "Unable to set uid $user_id: $!\n";
 
         die "Unable to drop privileges to $option{user}:$option{group}\n"
             unless $< == $user_id

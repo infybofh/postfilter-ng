@@ -237,7 +237,10 @@ failure policy, concurrency, security implications and side effects.
 | `_enum` | Validates one scalar against an explicit allow-list and applies a documented fallback. | `$hash, $key, $allowed, $warnings, $default` |
 | `_integer` | Validates an integer range used by a bounded operational setting. | `$hash, $key, $minimum, $maximum, $warnings, $default` |
 | `_deep_merge` | Recursively merges a configuration fragment and appends designated arrays of tables. | `$destination, $source` |
-| `_generation_id` | Creates a human-sortable UTC generation identifier with a collision-resistant suffix. | `No positional parameters, or arguments are read directly by the command wrapper.` |
+| `_assign_generation` | Assigns a stable content-derived identifier to one validated effective configuration. | `$self, $config, $warnings` |
+| `_save_generation` | Persists a canonical generation once, updates last-known-good only when it changes, and prunes old generation files. | `$self, $config, $warnings` |
+| `_snapshot_generation` | Reads a snapshot generation identifier without treating a missing or malformed file as fatal. | `$path` |
+| `_prune_generation_files` | Keeps the current generation plus the newest configured number of historical files. | `$self, $directory, $current_generation, $maximum` |
 
 ## `lib/Postfilter/Context.pm`
 
@@ -250,8 +253,10 @@ failure policy, concurrency, security implications and side effects.
 | `extract_urls` | Extracts unique HTTP/HTTPS URLs under the configured work limit. | `$self` |
 | `extract_domains` | Converts extracted URL hosts to unique registrable domains under the configured limit. | `$self` |
 | `make_config_writable` | Creates a private configuration copy only when an article-local rule override is required. | `$self` |
-| `deadline_exceeded` | Reports whether the complete article processing deadline has expired. | `$self` |
-| `remaining_processing_ms` | Returns milliseconds left in the complete article processing budget. | `$self` |
+| `start_processing_budget` | Starts the bounded check-and-transformation deadline once per article. | `$self` |
+| `deadline_exceeded` | Reports whether the bounded check-and-transformation deadline has expired. | `$self` |
+| `remaining_processing_ms` | Returns milliseconds left in the bounded check-and-transformation budget. | `$self` |
+| `pipeline_elapsed_ms` | Returns wall-clock milliseconds since the bounded filtering budget began. | `$self` |
 | `is_public_user` | Classifies empty and configured synthetic nnrpd identities as public without inverting real users. | `$self` |
 | `header` | Returns one article header or an empty string. | `$self, $name` |
 | `set_header` | Sets one article header in the current per-article context. | `$self, $name, $value` |

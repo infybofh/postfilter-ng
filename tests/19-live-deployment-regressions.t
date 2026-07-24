@@ -117,6 +117,11 @@ unlike(
 );
 like(
     $installer,
+    qr/POSIX::setgid.*POSIX::setuid/s,
+    'installer drops saved IDs through POSIX before exec',
+);
+like(
+    $installer,
     qr/Normalise ownership and modes after initialization/s,
     'installer performs a final recursive ownership and mode normalization',
 );

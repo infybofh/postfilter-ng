@@ -8,7 +8,7 @@ use ExtUtils::MakeMaker;
 # path discovery, key creation, SQLite initialization and staged hook creation.
 WriteMakefile(
     NAME             => 'Postfilter::NG',
-    VERSION          => '2026.007005_002',
+    VERSION          => '2026.007005_003',
     MIN_PERL_VERSION => '5.038000',
     PREREQ_PM        => {
         'Crypt::Mode::CBC' => 0,

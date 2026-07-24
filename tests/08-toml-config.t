@@ -40,6 +40,11 @@ my ($config, $warnings, $origin) = $loader->load;
 is($origin, 'source', 'full configuration loaded from TOML source');
 is($config->{policy}{mode}, 'audit', 'release ships in audit mode');
 is($config->{retention}{events}, 'forever', 'event retention is indefinite');
+is($config->{retention}{config_generations}, 32, 'configuration generation retention is bounded');
+is($config->{timeouts}{dns_query_seconds}, 1, 'DNS query timeout defaults to one second');
+is($config->{timeouts}{dns_total_seconds}, 1, 'complete DNS work defaults to one second');
+is($config->{timeouts}{max_processing_ms}, 2_700, 'processing budget defaults to 2700 ms');
+is($config->{timeouts}{on_processing_timeout}, 'reject', 'processing timeout fails closed');
 is($config->{headers}{sender}{mode}, 'preserve', 'Sender is preserved by default');
 is($config->{article_types}{mode}, 'text-only', 'release defaults to text-only mode');
 is(

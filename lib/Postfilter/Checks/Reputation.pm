@@ -398,7 +398,7 @@ sub _resolver {
     my $resolver = Net::DNS::Resolver->new;
     my $timeout =
         $context->{config}{timeouts}{dns_query_seconds}
-        // 2;
+        // 1;
     $resolver->udp_timeout($timeout);
     $resolver->tcp_timeout($timeout);
 
@@ -421,7 +421,7 @@ sub _dns_budget_error {
     $context->{dns_started_at} //= time;
     my $total_seconds =
         $context->{config}{timeouts}{dns_total_seconds}
-        // 10;
+        // 1;
 
     return
         if $total_seconds <= 0

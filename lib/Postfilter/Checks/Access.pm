@@ -21,7 +21,7 @@ public or pure authenticated deployment.
 
 C<limits.default_multipost_limit> supplies the profile default and may be raised
 or lowered by a matching access profile. C<limits.absolute_multipost_limit> is a
-hard ceiling applied after profile resolution.
+hard ceiling enforced after the effective profile limit is resolved.
 
 =cut
 
