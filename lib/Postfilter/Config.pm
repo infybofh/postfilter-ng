@@ -38,6 +38,7 @@ use File::Spec;
 use JSON::PP;
 use Scalar::Util qw(blessed looks_like_number);
 
+use Postfilter::InstallPaths;
 use Postfilter::Util qw(atomic_write now_iso slurp);
 
 my %APPEND_ARRAY = map { $_ => 1 } qw(
@@ -585,7 +586,7 @@ sub _save_generation {
     my $state_directory =
         $self->{state_dir}
         // $config->{paths}{state_dir}
-        // '/var/lib/news/postfilter-ng';
+        // Postfilter::InstallPaths::state_dir();
 
     my $generation_directory = File::Spec->catdir(
         $state_directory,
@@ -686,7 +687,7 @@ sub _load_last_known_good {
 
     my $state_directory =
         $self->{state_dir}
-        // '/var/lib/news/postfilter-ng';
+        // Postfilter::InstallPaths::state_dir();
     my $path = File::Spec->catfile(
         $state_directory,
         'last-known-good.json',
@@ -1008,6 +1009,9 @@ sub embedded_minimal {
             uribl    => 0,
             userdb   => 0,
         },
+        paths => {
+            state_dir => Postfilter::InstallPaths::state_dir(),
+        },
         policy => {
             action_on_accept => 'accept',
             action_on_reject => 'reject',
@@ -1128,7 +1132,10 @@ sub _apply_defaults {
             busy_timeout_ms => 5_000,
             enabled         => 1,
             on_failure      => 'accept',
-            path            => '/var/lib/news/postfilter-ng/postfilter.sqlite3',
+            path            => File::Spec->catfile(
+                Postfilter::InstallPaths::state_dir(),
+                'postfilter.sqlite3',
+            ),
             synchronous     => 'FULL',
         },
         modules => {

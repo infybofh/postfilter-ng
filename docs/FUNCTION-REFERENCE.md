@@ -56,11 +56,16 @@ failure policy, concurrency, security implications and side effects.
 |---|---|---|
 | `_resolve_inn_paths` | Uses innconfval to discover filter, configuration, database, spool, binary, and active paths. | `No positional parameters, or arguments are read directly by the command wrapper.` |
 | `_apply_fallback_paths` | Fills only unresolved installer paths with portable defaults. | `No positional parameters, or arguments are read directly by the command wrapper.` |
+| `_running_perl_path` | Resolves the interpreter executing the installer to an absolute executable path. | `No positional parameters.` |
+| `_find_in_path` | Resolves one command name through PATH without invoking a shell. | `$name` |
 | `_find_executable` | Returns the first executable candidate path. | `$binary, $key` |
 | `_inn_value` | Runs innconfval without a shell and returns one trimmed setting. | `$binary, $key` |
 | `_check_dependencies` | Verifies every required runtime Perl module before modifying the installation. | `No positional parameters, or arguments are read directly by the command wrapper.` |
 | `_copy_tree` | Recursively copies release files while preserving executable modes and symlinks. | `$source, $destination` |
 | `_compile_tree` | Runs perl -c on every installed module and executable in the staging tree. | `$directory` |
+| `_rewrite_installed_shebangs` | Replaces portable source-tree shebangs with the absolute active Perl interpreter. | `$directory, $interpreter` |
+| `_write_install_paths_module` | Persists installer-detected runtime defaults inside the activated code prefix. | `$path` |
+| `_perl_single_quoted` | Quotes one installer path as a safe single-quoted Perl literal. | `$value` |
 | `_create_runtime_directories` | Creates documented configuration, key, state, saved-article, userdb, and HTML directories. | `No positional parameters, or arguments are read directly by the command wrapper.` |
 | `_install_configuration_files` | Installs main/fragments/assets while preserving operator files on upgrade. | `No positional parameters, or arguments are read directly by the command wrapper.` |
 | `_install_config_file` | Copies one configuration asset only when policy permits replacement. | `$source, $destination` |
@@ -71,6 +76,7 @@ failure policy, concurrency, security implications and side effects.
 | `_merge_configuration_hash` | Recursively merges installer-only configuration tables used to resolve key paths. | `$destination, $source` |
 | `_create_random_key` | Creates and verifies one non-overwritten 64-byte key from /dev/urandom. | `$path, $purpose` |
 | `_install_command_links` | Creates the review-only INN hook candidate and the postfilterctl command link. | `No positional parameters, or arguments are read directly by the command wrapper.` |
+| `_verify_embedded_hook_candidate` | Loads the candidate as nnrpd does and constructs the engine without path overrides. | `No positional parameters.` |
 | `_print_activation_notice` | Shows the exact candidate and active hook paths after a successful installation. | `No positional parameters.` |
 | `_set_configuration_ownership` | Recursively applies root:news-style ownership and non-writable configuration permissions. | `$directory, $group` |
 | `_chown_tree` | Recursively assigns runtime ownership and documented directory/file modes. | `$directory, $user, $group, $directory_mode, $file_mode` |
@@ -85,6 +91,13 @@ failure policy, concurrency, security implications and side effects.
 | Function | Purpose | Parameters |
 |---|---|---|
 | `serialize` | Serialises the current article headers and body for exact administrative storage/output. | `$class, $context` |
+
+## `lib/Postfilter/ArticleType.pm`
+
+| Function | Purpose | Parameters |
+|---|---|---|
+| `classify` | Classifies one Newsgroups set as text, binary or mixed using the configured reader mode and binary-group globs. | `$class, $config, $newsgroups` |
+| `_compiled_globs` | Compiles and caches the binary-group glob list for the lifetime of one nnrpd process. | `$patterns` |
 
 ## `lib/Postfilter/Checks/Access.pm`
 
@@ -139,6 +152,7 @@ failure policy, concurrency, security implications and side effects.
 | `run_uri_lists` | Extracts registrable domains from article URLs and evaluates enabled SURBL/URIBL providers. | `$class, $context` |
 | `_query_ip_list` | Reverses an IPv4/IPv6 address and queries one DNSBL-style provider. | `$context, $ip, $provider, $list_type` |
 | `_dns_query` | Performs a cached, budget-aware DNS A query and updates provider health/cooldown state. | `$context, $query_name, $provider, $list_type` |
+| `_background_dns_query` | Performs one asynchronous DNS query within the smaller of query, DNS-total and article deadlines. | `$context, $resolver, $query_name` |
 | `_resolver` | Lazily constructs and reuses one Net::DNS resolver per nnrpd process. | `$context` |
 | `_dns_budget_error` | Detects exhausted per-article DNS time and returns the provider’s configured failure outcome. | `$context` |
 | `_failure_result` | Translates provider timeout/refusal/internal failure into accept, skip, or rejection policy. | `$context, $provider, $provider_id, $error, $base_result` |
@@ -354,6 +368,13 @@ failure policy, concurrency, security implications and side effects.
 | `reputation` | Writes level-7 DNS reputation diagnostics. | `$s, $m, %f` |
 | `rules` | Writes level-8 rule and scoring diagnostics. | `$s, $m, %f` |
 | `trace` | Writes level-9 detailed execution timing and trace data. | `$s, $m, %f` |
+
+## `lib/Postfilter/InstallPaths.pm`
+
+| Function | Purpose | Parameters |
+|---|---|---|
+| `config_file` | Returns the runtime configuration file, with an explicit environment override. | `No positional parameters.` |
+| `state_dir` | Returns the runtime state directory, with an explicit environment override. | `No positional parameters.` |
 
 ## `lib/Postfilter/NG.pm`
 

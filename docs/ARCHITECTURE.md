@@ -10,6 +10,18 @@ configuration, the SQLite handle, active-file cache and bounded DNS cache may
 survive between articles.  Every POST receives a new `Postfilter::Context`;
 scores, verdicts, notes and rule hits never leak to the next article.
 
+## Installed runtime layout
+
+The source tree is location-independent. The installer records the selected
+configuration file and mutable state directory in
+`Postfilter::InstallPaths` inside the installed prefix. The hook resolves its
+module root from `__FILE__`, including the active `filter_nnrpd.pl` symlink, and
+does not depend on nnrpd's `$0`. Installed command shebangs point to the exact
+Perl interpreter used during setup.
+
+Configuration and keys are read-only to the INN runtime account. SQLite,
+configuration generations and saved articles are writable by that account.
+
 ## Pipeline
 
 1. inspect configuration generation mtimes and reload only a complete valid set;
@@ -97,3 +109,9 @@ authentication; stable pseudonyms use HMAC-SHA-256.
 attachments and unlabelled Base64 are different from yEnc/uuencode markers.  It
 uses the already selected article-type profile: text enables strict inspection,
 while binary disables it by default.  The stage is bounded by MIME depth, MIME part count, body scan bytes and the check-and-transformation deadline. Context creation and preliminary logging are timed separately and do not consume that budget.
+
+All reputation providers share per-process cache and health state. DNS queries
+use the Net::DNS background interface. The active wait is bounded by the
+per-query limit, the shared DNS-total limit and the remaining article deadline;
+resolver retries are explicitly limited to one. Provider failures follow
+explicit policy and are not interpreted as positive listings.

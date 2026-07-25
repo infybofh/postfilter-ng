@@ -56,12 +56,13 @@ use Postfilter::Crypto;
 use Postfilter::Database;
 use Postfilter::Dependencies;
 use Postfilter::HeaderTransform;
+use Postfilter::InstallPaths;
 use Postfilter::Logger;
 use Postfilter::PublicSuffix;
 use Postfilter::Result;
 use Postfilter::SavedArticle;
 
-our $VERSION = '2026.07.5-rc3';
+our $VERSION = '2026.07.5-rc4';
 
 # Function: new
 # Purpose: Constructs one reusable per-nnrpd engine, loads configuration, dependencies, SQLite,
@@ -79,12 +80,10 @@ sub new {
 
     my $source =
         $arguments{config}
-        // $ENV{POSTFILTER_CONFIG}
-        // '/etc/news/postfilter-ng/postfilter.toml';
+        // Postfilter::InstallPaths::config_file();
     my $state_directory =
         $arguments{state_dir}
-        // $ENV{POSTFILTER_STATE_DIR}
-        // '/var/lib/news/postfilter-ng';
+        // Postfilter::InstallPaths::state_dir();
 
     my $loader = Postfilter::Config->new(
         logger    => $logger,
@@ -542,7 +541,14 @@ sub _run_pipeline {
         $first_rejection //= $timeout_result unless $timeout_result->is_pass;
     }
 
-    if ($config->{modules}{headers} && !$context->skip('headers')) {
+    if ($context->{processing_timeout_result}) {
+        $self->{logger}->pipeline(
+            'check_skipped',
+            check   => 'headers',
+            profile => 'processing-timeout',
+        );
+    }
+    elsif ($config->{modules}{headers} && !$context->skip('headers')) {
         my $headers_started_at = time;
         my $transformation = Postfilter::HeaderTransform->apply($context);
         $self->{logger}->trace(
@@ -743,6 +749,9 @@ sub _custom_error_result {
 sub _processing_timeout_result {
     my ($self, $context, $next_check) = @_;
 
+    return $context->{processing_timeout_result}
+        if $context->{processing_timeout_result};
+
     my $action =
         $context->{config}{timeouts}{on_processing_timeout}
         // 'accept';
@@ -753,19 +762,20 @@ sub _processing_timeout_result {
         next_check => $next_check,
     );
 
-    if ($action eq 'reject') {
-        return Postfilter::Result->reject(
+    my $result = $action eq 'reject'
+        ? Postfilter::Result->reject(
             code    => 'PF-INTERNAL-097',
             legacy  => 55,
             message => 'Article processing time limit exceeded',
+        )
+        : Postfilter::Result->pass(
+            code    => 'PF-INTERNAL-096',
+            legacy  => 0,
+            message => 'Remaining checks skipped after processing time limit',
         );
-    }
 
-    return Postfilter::Result->pass(
-        code    => 'PF-INTERNAL-096',
-        legacy  => 0,
-        message => 'Remaining checks skipped after processing time limit',
-    );
+    $context->{processing_timeout_result} = $result;
+    return $result;
 }
 
 # Function: _resolve_policy

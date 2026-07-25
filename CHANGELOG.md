@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026.07.5-rc4 — 2026-07-25
+
+FreeBSD portability, persistent installer paths and hard DNS deadlines from the
+first external deployment report.
+
+- persists the installer-selected configuration file and state directory in an
+  installed `Postfilter::InstallPaths` module used by both the nnrpd hook and
+  `postfilterctl`;
+- validates the generated runtime paths without environment variables or
+  command-line path overrides;
+- verifies the staged hook by loading it through `do` with an nnrpd-like `$0`
+  and constructing the engine before activation;
+- uses portable `#!/usr/bin/env perl` source shebangs and rewrites installed
+  commands to the exact absolute Perl interpreter that ran the installer;
+- performs DNS reputation queries through `bgsend`/`bgbusy`/`bgread` rather
+  than the synchronous multi-retry API;
+- applies the smaller of the per-query DNS limit, whole-article DNS limit and
+  remaining article-processing budget as a hard wall-clock deadline;
+- limits resolver retries to one and keeps the shipped total DNS budget at one
+  second;
+- records an exhausted article-processing budget once, reuses the first
+  technical timeout result during audit finalisation and skips later header
+  transformations after timeout;
+- documents the intentional `root:<news-group>` read-only ownership of
+  configuration and keys, with `news:news` ownership reserved for mutable state
+  and saved articles;
+- adds complete audit-first `cleanfeed.local` examples, including adapted
+  historical Steve Crook signatures and a modern composite recruitment/URL
+  flood example;
+- adds portability, generated-path, asynchronous-DNS and single-timeout
+  regression tests.
+
 ## 2026.07.5-rc3 — 2026-07-24
 
 Operational hardening from the first full day of live RC2 traffic.

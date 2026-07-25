@@ -15,6 +15,25 @@ Tables merge recursively.  Rule arrays (`ban_rule`, `badword`,
 `trusted_profile`, access/reputation/structural arrays) append in file order.
 Duplicate rule IDs disable the duplicate and produce a configuration warning.
 
+## Installed runtime paths
+
+The release tree contains portable source defaults. During installation,
+`install-postfilter` writes the selected configuration file and state directory
+to `lib/Postfilter/InstallPaths.pm` inside the installed prefix. Both the nnrpd
+hook and `postfilterctl` read that module, so layouts discovered by `innconfval`
+remain active after the installer exits.
+
+The following environment variables are explicit one-shot overrides:
+
+```text
+POSTFILTER_CONFIG
+POSTFILTER_STATE_DIR
+```
+
+They are not required for a normal installed invocation. The installer removes
+them while performing its runtime-user validation, ensuring that generated
+installation paths work independently.
+
 ## Regex strings
 
 Prefer literal TOML strings:
@@ -254,6 +273,32 @@ fail-open option for MIME parsing only and does not disable other checks.
 
 ## Operational budgets and generation retention
 
-The shipped defaults cap each DNS query and the complete DNS reputation phase at one second. `max_processing_ms = 2700` applies to bounded checks and header transformations; timeout handling defaults to rejection. Level-9 logging emits per-phase timings, while the final result includes `pipeline_ms` and `finalization_ms`.
+The shipped defaults set both `dns_query_seconds` and `dns_total_seconds` to one
+second. Reputation lookups use Net::DNS's background interface and stop at the
+first of these deadlines:
 
-Configuration generations are content-addressed. Identical effective TOML sets reuse the same generation across nnrpd processes. `retention.config_generations = 32` keeps the active generation and recent rollback history; zero disables pruning.
+- the current provider-query deadline;
+- the shared whole-article DNS deadline;
+- the remaining article-processing deadline.
+
+The resolver is limited to one attempt. A slow or unreachable provider therefore
+cannot inherit the synchronous resolver's multi-retry wall-clock delay. Provider
+`on_timeout`/`on_error` policy determines whether that lookup is skipped or
+becomes a technical rejection.
+
+`max_processing_ms = 2700` applies to bounded checks and header transformations;
+timeout handling defaults to rejection. Context creation, preliminary identity
+logging and trusted-profile resolution are measured before the deadline starts.
+SQLite event persistence and final logging are measured separately. Level-9
+logging emits phase timings, while the final result includes `pipeline_ms` and
+`finalization_ms`.
+
+One exhausted processing budget creates one cached `PF-INTERNAL-096` or
+`PF-INTERNAL-097` technical result. Later audit/finalisation checks reuse it,
+do not emit duplicate timeout warnings and do not run header transformations
+after the deadline.
+
+Configuration generations are content-addressed. Identical effective TOML sets
+reuse the same generation across nnrpd processes.
+`retention.config_generations = 32` keeps the active generation and recent
+rollback history; zero disables pruning.

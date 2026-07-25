@@ -22,7 +22,7 @@ Postfilter-NG is a Perl posting filter for the INN `nnrpd` service. It validates
 articles before acceptance, applies text and binary policies, records searchable
 audit events in SQLite, and supports staged deployment through audit mode.
 
-> **Version:** `2026.07.5-rc3`  
+> **Version:** `2026.07.5-rc4`  
 > **Status:** **Release candidate**  
 > **Runtime:** [Perl](https://www.perl.org/) 5.38 or newer and
 > [INN](https://www.eyrie.org/~eagle/software/inn/) 2.x  
@@ -40,11 +40,10 @@ audit events in SQLite, and supports staged deployment through audit mode.
 - SQLite WAL audit history with indexed long-term queries.
 - Stable symbolic `PF-*` reason codes and numeric compatibility codes.
 - Trusted profiles with selectable check bypasses.
-- DNSBL, URIBL, SURBL and TOR checks with caching and provider cooldown.
+- DNSBL, URIBL, SURBL and TOR checks with caching, provider cooldown and a hard shared DNS deadline.
 - Last-known-good configuration snapshots and per-rule validation.
 - Static HTML statistics, saved-article diagnostics and `postfilterctl` tooling.
-- Transactional installation with independent cryptographic keys generated from
-  `/dev/urandom`.
+- Transactional installation with persistent INN-discovered runtime paths, portable Perl entry points and independent cryptographic keys generated from `/dev/urandom`.
 
 ## Supported reader modes
 
@@ -139,7 +138,9 @@ bin/postfilterctl explain \
 
 The installer discovers INN paths through `innconfval` and accepts explicit
 path overrides for Debian, Ubuntu, FreeBSD, OpenBSD and other supported Unix-like
-systems.
+systems. It writes the selected configuration and state paths into the installed
+Perl module tree, pins installed command shebangs to the Perl interpreter used for
+setup, and validates those defaults without temporary environment variables.
 
 ```sh
 sudo installer/install-postfilter --dry-run
@@ -160,9 +161,7 @@ rollback commands are in [`docs/INSTALL.md`](docs/INSTALL.md).
 
 The setup creates all state directories, the SQLite schema and four separate
 512-bit keys for TOR headers, header pseudonyms, HTML-report identities and
-SQLite identity protection. Configuration validation and database creation run
-as the configured INN account; runtime state is installed as `news:news` by
-default.
+SQLite identity protection. Configuration validation and database creation run as the configured INN account; runtime state is installed as `news:news` by default. Configuration and keys remain `root:news` and read-only to the runtime account.
 
 Upgrade, rollback and custom-path examples are documented in
 [`docs/INSTALL.md`](docs/INSTALL.md).
@@ -209,7 +208,7 @@ administrative audit event.
 - `postfilter` — INN Perl hook target; the installer stages `filter_nnrpd.pl.ng` for review.
 - `lib/Postfilter/` — engine, context, checks, storage, reporting and utilities.
 - `conf/` — canonical TOML configuration and local custom-rule module.
-- `examples/` — focused configurations and article fixtures.
+- `examples/` — focused configurations, article fixtures and audit-first Cleanfeed-NG local-hook examples.
 - `bin/postfilterctl` — administration command.
 - `installer/install-postfilter` — installation, upgrade and rollback tool.
 - `migrations/` — SQLite schema and upgrade migrations.
@@ -217,6 +216,14 @@ administrative audit event.
 - `share/` — Public Suffix data and report assets.
 - `tests/` — regression, policy, security and concurrency tests.
 - `docs/` — installation, architecture, configuration, security and references.
+
+## Cleanfeed-NG companion hooks
+
+[`examples/cleanfeed-local-hooks/`](examples/cleanfeed-local-hooks/) contains
+complete, disabled-by-policy local-hook examples for Cleanfeed-NG. The pack
+includes adapted historical signatures from Steve Crook's public sample and
+newer composite rules. It defaults to save-and-allow audit behaviour and is not
+loaded by Postfilter-NG.
 
 ## Documentation
 
@@ -241,7 +248,7 @@ YYYY.MM.patch-stageN
 Examples:
 
 ```text
-2026.07.5-rc3
+2026.07.5-rc4
 2026.07.5
 ```
 

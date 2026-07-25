@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 use strict;
 use warnings;
@@ -11,8 +11,11 @@ install-postfilter - Transactional installer for Postfilter-NG.
 
 The installer is written in Perl and avoids distribution-specific package
 commands.  It works with Debian/Ubuntu, FreeBSD, OpenBSD and custom INN builds as
-long as the required Perl modules are already installed.  Paths are discovered
-with C<innconfval> and can be overridden individually.
+long as the required Perl modules are already installed. Paths are discovered
+with C<innconfval> and can be overridden individually. The selected
+configuration/state paths are persisted in the installed Perl module tree, and
+installed command shebangs are rewritten to the absolute interpreter running
+this installer.
 
 =head1 KEY CREATION
 
@@ -38,6 +41,8 @@ preserved unless C<--force-config> is explicitly supplied.
 =cut
 
 use FindBin qw($RealBin);
+use Config ();
+use Cwd qw(abs_path);
 use File::Basename qw(dirname);
 use File::Copy qw(copy);
 use File::Path qw(make_path remove_tree);
@@ -94,6 +99,7 @@ GetOptions(
 _usage(0) if $option{help};
 
 my $source_root = dirname($RealBin);
+my $perl_path = _running_perl_path();
 _resolve_inn_paths();
 _apply_fallback_paths();
 
@@ -117,6 +123,7 @@ _execute(sub {
     remove_tree($staging_directory) if -e $staging_directory;
     make_path($staging_directory, { mode => 0755 });
     _copy_tree($source_root, $staging_directory);
+    _rewrite_installed_shebangs($staging_directory, $perl_path);
     _compile_tree($staging_directory);
 });
 
@@ -134,6 +141,9 @@ _execute(sub {
 });
 
 _execute(sub {
+    _write_install_paths_module(
+        "$option{prefix}/lib/Postfilter/InstallPaths.pm",
+    );
     _create_runtime_directories();
     my $main_installed = _install_configuration_files();
     _replace_default_paths("$option{config_dir}/postfilter.toml")
@@ -176,24 +186,16 @@ _execute(sub {
 });
 
 _execute(sub {
-    local $ENV{POSTFILTER_CONFIG} =
-        "$option{config_dir}/postfilter.toml";
-    local $ENV{POSTFILTER_STATE_DIR} = $option{state_dir};
-
-    my @base_command = (
-        $^X,
-        "-I$option{prefix}/lib",
-        "$option{prefix}/bin/postfilterctl",
-        '--config',
-        "$option{config_dir}/postfilter.toml",
-        '--state-dir',
-        $option{state_dir},
-    );
+    # Deliberately omit POSTFILTER_CONFIG, POSTFILTER_STATE_DIR and command-line
+    # path overrides here.  These checks prove that the installer-generated
+    # runtime defaults are sufficient for postfilterctl and embedded nnrpd.
+    my @base_command = ("$option{prefix}/bin/postfilterctl");
 
     _run_as_runtime_user(@base_command, 'check-config')
         or die "Configuration validation failed for runtime user $option{user}\n";
     _run_as_runtime_user(@base_command, 'db-migrate')
         or die "SQLite initialisation failed for runtime user $option{user}\n";
+    _verify_embedded_hook_candidate();
 
     # Normalise ownership and modes after initialization as a final safety net
     # for upgrades from older installers that created root-owned runtime files.
@@ -278,6 +280,55 @@ sub _apply_fallback_paths {
     $option{active_file} //= '/var/lib/news/active';
     $option{sendmail} //= '/usr/lib/news/bin/innmail';
     $option{ctl_bin} //= '/usr/local/sbin/postfilterctl';
+    return;
+}
+
+# Function: _running_perl_path
+# Purpose: Resolves the interpreter executing the installer to an absolute executable path.
+# Parameters: None.
+# Operational notes: Installed command shebangs use this exact path, avoiding Linux-only
+#                    assumptions such as /usr/bin/perl.
+sub _running_perl_path {
+    my @candidate;
+
+    if (defined $^X && length $^X) {
+        if ($^X =~ m{/}) {
+            push @candidate, $^X;
+        }
+        else {
+            push @candidate, _find_in_path($^X);
+        }
+    }
+
+    push @candidate, $Config::Config{perlpath}
+        if defined $Config::Config{perlpath};
+
+    for my $candidate (@candidate) {
+        next unless defined $candidate && length $candidate;
+        my $absolute = abs_path($candidate) // $candidate;
+        next unless -x $absolute;
+        die "Perl interpreter path contains whitespace: $absolute\n"
+            if $absolute =~ /\s/;
+        return $absolute;
+    }
+
+    die "Unable to resolve the Perl interpreter used to run this installer\n";
+}
+
+# Function: _find_in_path
+# Purpose: Resolves one command name through PATH without invoking a shell.
+# Parameters: $name
+# Operational notes: Empty PATH entries are interpreted as the current directory.
+sub _find_in_path {
+    my ($name) = @_;
+    return unless defined $name && length $name;
+
+    for my $directory (split /:/, $ENV{PATH} // '') {
+        $directory = '.' unless length $directory;
+        my $candidate = "$directory/$name";
+        return $candidate if -x $candidate && !-d $candidate;
+    }
+
     return;
 }
 
@@ -410,6 +461,112 @@ sub _compile_tree {
 =head2 Runtime directories, configuration and keys
 
 =cut
+
+# Function: _rewrite_installed_shebangs
+# Purpose: Replaces portable source-tree shebangs with the absolute active Perl interpreter.
+# Parameters: $directory, $interpreter
+# Operational notes: The repository remains executable through /usr/bin/env; installed commands
+#                    do not depend on PATH or on a distribution-specific Perl location.
+sub _rewrite_installed_shebangs {
+    my ($directory, $interpreter) = @_;
+
+    for my $relative (qw(
+        postfilter
+        bin/postfilterctl
+        installer/install-postfilter
+        Makefile.PL
+    )) {
+        my $path = "$directory/$relative";
+        next unless -f $path;
+
+        open my $input, '<:raw', $path
+            or die "Unable to read $path while rewriting shebang: $!";
+        local $/;
+        my $text = <$input>;
+        close $input;
+
+        $text =~ s{\A\#![^\r\n]*perl[^\r\n]*(?:\r?\n)}{#!$interpreter\n}
+            or die "No Perl shebang found in $path\n";
+
+        my $mode = (stat($path))[2] & 07777;
+        open my $output, '>:raw', $path
+            or die "Unable to write $path while rewriting shebang: $!";
+        print {$output} $text
+            or die "Unable to update shebang in $path: $!";
+        close $output
+            or die "Unable to close $path after rewriting shebang: $!";
+        chmod $mode, $path
+            or die "Unable to restore mode on $path: $!";
+    }
+
+    return;
+}
+
+# Function: _write_install_paths_module
+# Purpose: Persists installer-detected runtime defaults inside the activated code prefix.
+# Parameters: $path
+# Operational notes: Environment variables can still override these values for one-shot tests.
+sub _write_install_paths_module {
+    my ($path) = @_;
+
+    my $config_file = _perl_single_quoted(
+        "$option{config_dir}/postfilter.toml",
+    );
+    my $state_directory = _perl_single_quoted($option{state_dir});
+
+    my $contents = <<"MODULE";
+package Postfilter::InstallPaths;
+
+use strict;
+use warnings;
+
+our \$VERSION = '2026.07.5-rc4';
+
+use constant CONFIG_FILE => $config_file;
+use constant STATE_DIR   => $state_directory;
+
+sub config_file {
+    return \$ENV{POSTFILTER_CONFIG} // CONFIG_FILE;
+}
+
+sub state_dir {
+    return \$ENV{POSTFILTER_STATE_DIR} // STATE_DIR;
+}
+
+1;
+MODULE
+
+    my $temporary = "$path.tmp.$$";
+    open my $handle, '>:raw', $temporary
+        or die "Unable to create $temporary: $!";
+    print {$handle} $contents
+        or die "Unable to write $temporary: $!";
+    close $handle
+        or die "Unable to close $temporary: $!";
+    chmod 0644, $temporary
+        or die "Unable to chmod $temporary: $!";
+    rename $temporary, $path
+        or die "Unable to activate generated path module $path: $!";
+
+    system($perl_path, "-I$option{prefix}/lib", '-c', $path) == 0
+        or die "Generated runtime path module does not compile: $path\n";
+
+    return;
+}
+
+# Function: _perl_single_quoted
+# Purpose: Quotes one installer path as a safe single-quoted Perl literal.
+# Parameters: $value
+# Operational notes: Newlines and carriage returns are rejected before code generation.
+sub _perl_single_quoted {
+    my ($value) = @_;
+    die "Unsafe newline in installation path\n"
+        if !defined($value) || $value =~ /[\r\n]/;
+
+    $value =~ s/\\/\\\\/g;
+    $value =~ s/'/\\'/g;
+    return "'$value'";
+}
 
 # Function: _create_runtime_directories
 # Purpose: Creates documented configuration, key, state, saved-article, userdb, and HTML
@@ -742,6 +899,33 @@ sub _install_command_links {
     return;
 }
 
+# Function: _verify_embedded_hook_candidate
+# Purpose: Loads the candidate as nnrpd does and constructs the engine without path overrides.
+# Parameters: None.
+# Operational notes: This catches embedded-Perl and installer path propagation failures before
+#                    the newsmaster can activate the hook.
+sub _verify_embedded_hook_candidate {
+    my $candidate = "$option{filter_dir}/filter_nnrpd.pl.ng";
+    my $program = <<'PERL';
+my $file = shift;
+local $0 = '/usr/local/news/bin/nnrpd';
+my $loaded = do $file;
+die "Perl load error: $@" if $@;
+die "Operating-system error: $!" unless defined $loaded;
+die "Filter returned false\n" unless $loaded;
+die "Postfilter-NG engine entry point is unavailable\n"
+    unless defined &main::_engine;
+my $engine = main::_engine();
+die "Postfilter-NG engine construction failed\n" unless $engine;
+$engine->shutdown;
+print "Postfilter-NG embedded hook load OK\n";
+PERL
+
+    _run_as_runtime_user($perl_path, '-e', $program, $candidate)
+        or die "Embedded nnrpd hook verification failed for $candidate\n";
+    return;
+}
+
 # Function: _print_activation_notice
 # Purpose: Shows the exact candidate and active hook paths after a successful installation.
 # Parameters: No positional parameters.
@@ -758,6 +942,8 @@ sub _print_activation_notice {
     print "After completing configuration, article tests and audit review, back up\n";
     print "the active hook if it exists and rename the candidate to filter_nnrpd.pl.\n";
     print "See docs/INSTALL.md for the activation and rollback commands.\n";
+    print "Configuration remains root:$option{group} and read-only to $option{user}.\n";
+    print "Runtime state and saved articles are writable by $option{user}:$option{group}.\n";
     return;
 }
 
@@ -859,6 +1045,8 @@ sub _run_as_runtime_user {
         $ENV{HOME} = $home if defined $home && length $home;
         $ENV{USER} = $option{user};
         $ENV{LOGNAME} = $option{user};
+        delete $ENV{POSTFILTER_CONFIG};
+        delete $ENV{POSTFILTER_STATE_DIR};
 
         # Clear inherited root-only supplementary groups, then drop real,
         # effective and saved group/user IDs before executing postfilterctl.
@@ -962,6 +1150,11 @@ sub _print_plan {
     printf "  %-13s %s\n",
         "active_hook",
         "$option{filter_dir}/filter_nnrpd.pl";
+    printf "  %-13s %s\n", 'perl', $perl_path;
+    printf "  %-13s %s\n",
+        'runtime_config',
+        "$option{config_dir}/postfilter.toml";
+    printf "  %-13s %s\n", 'runtime_state', $option{state_dir};
     print '  mode          '
         . ($option{dry_run} ? 'DRY-RUN' : 'APPLY')
         . "\n";

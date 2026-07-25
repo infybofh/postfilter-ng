@@ -1,5 +1,5 @@
 ###############################################################################
-# Postfilter-NG 2026.07.5-rc3
+# Postfilter-NG 2026.07.5-rc4
 # Main configuration file
 ###############################################################################
 #
@@ -822,4 +822,4 @@ key_file = "/etc/news/postfilter-ng/keys/html-report-privacy.key"
 [new_headers]
 # Example public operational headers.  Remove or replace values for your site.
 X-Complaints-To = "abuse@bofh.team"
-X-Postfilter = "Postfilter-NG 2026.07.5-rc3"
+X-Postfilter = "Postfilter-NG 2026.07.5-rc4"

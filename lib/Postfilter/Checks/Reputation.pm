@@ -10,9 +10,10 @@ Postfilter::Checks::Reputation - TOR, DNSBL, SURBL and URIBL checks.
 =head1 DESIGN
 
 All DNS-based checks share a resolver, health state and bounded cache for the
-lifetime of the current nnrpd process.  A single article is protected by both a
-per-query timeout and C<timeouts.dns_total_seconds>; the global article deadline
-is also checked before every query.
+lifetime of the current nnrpd process. Queries use the Net::DNS background API;
+the wait ends at the earliest per-query, whole-article DNS or processing
+deadline. Resolver retry is limited to one, so the synchronous query API's
+default retransmission cycle cannot extend the configured wall-clock budget.
 
 Provider failures are never interpreted as positive listings.  Reply codes in
 C<refused_codes> identify blocked public-resolver queries such as URIBL's
@@ -22,7 +23,7 @@ list deliberately leaves that array empty, produce a listing.
 =cut
 
 use Socket qw(AF_INET6 inet_pton);
-use Time::HiRes qw(time);
+use Time::HiRes qw(sleep time);
 
 use Postfilter::Codes;
 use Postfilter::Result;
@@ -285,49 +286,58 @@ sub _dns_query {
         require Net::DNS;
 
         my $resolver = _resolver($context);
-        my $packet = $resolver->query($query_name, 'A');
+        my ($packet, $background_error) = _background_dns_query(
+            $context,
+            $resolver,
+            $query_name,
+        );
 
         if (!$packet) {
-            my $error = $resolver->errorstring || 'dns-failure';
+            $result = {
+                answers => [],
+                error   => $background_error || 'dns-failure',
+                listed  => 0,
+            };
+        }
+        else {
+            my $rcode = eval { $packet->header->rcode } // '';
 
-            # NXDOMAIN means the queried address/domain is not listed.  It is a
-            # normal negative answer, not a provider outage.
-            if ($error =~ /NXDOMAIN/i) {
+            if ($rcode eq 'NXDOMAIN') {
                 $result = {
                     answers => [],
+                    listed  => 0,
+                };
+            }
+            elsif (length($rcode) && $rcode ne 'NOERROR') {
+                $result = {
+                    answers => [],
+                    error   => "dns-rcode-$rcode",
                     listed  => 0,
                 };
             }
             else {
+                my @answers = map { $_->address }
+                    grep { $_->type eq 'A' }
+                    $packet->answer;
+
+                my %positive = map { $_ => 1 }
+                    @{ $provider->{positive_codes} // [] };
+                my %refused = map { $_ => 1 }
+                    @{ $provider->{refused_codes} // ['127.0.0.1'] };
+
+                my $is_refused = scalar grep { $refused{$_} } @answers;
+                my $is_listed = @{ $provider->{positive_codes} // [] }
+                    ? scalar grep { $positive{$_} } @answers
+                    : scalar @answers;
+
+                $is_listed = 0 if $is_refused;
+
                 $result = {
-                    answers => [],
-                    error   => $error,
-                    listed  => 0,
+                    answers => \@answers,
+                    listed  => $is_listed ? 1 : 0,
+                    refused => $is_refused ? 1 : 0,
                 };
             }
-        }
-        else {
-            my @answers = map { $_->address }
-                grep { $_->type eq 'A' }
-                $packet->answer;
-
-            my %positive = map { $_ => 1 }
-                @{ $provider->{positive_codes} // [] };
-            my %refused = map { $_ => 1 }
-                @{ $provider->{refused_codes} // ['127.0.0.1'] };
-
-            my $is_refused = scalar grep { $refused{$_} } @answers;
-            my $is_listed = @{ $provider->{positive_codes} // [] }
-                ? scalar grep { $positive{$_} } @answers
-                : scalar @answers;
-
-            $is_listed = 0 if $is_refused;
-
-            $result = {
-                answers => \@answers,
-                listed  => $is_listed ? 1 : 0,
-                refused => $is_refused ? 1 : 0,
-            };
         }
 
         1;
@@ -385,6 +395,67 @@ sub _dns_query {
     return $result;
 }
 
+# Function: _background_dns_query
+# Purpose: Performs one asynchronous DNS query within the smaller of query, DNS-total and article
+#          deadlines.
+# Parameters: $context, $resolver, $query_name
+# Operational notes: The method never calls the synchronous query() API and therefore does not
+#                    inherit its multi-retry wall-clock behaviour.
+sub _background_dns_query {
+    my ($context, $resolver, $query_name) = @_;
+
+    $context->{dns_started_at} //= time;
+    my $now = time;
+    my @deadline;
+
+    my $query_seconds =
+        $context->{config}{timeouts}{dns_query_seconds}
+        // 1;
+    push @deadline, $now + $query_seconds if $query_seconds > 0;
+
+    my $total_seconds =
+        $context->{config}{timeouts}{dns_total_seconds}
+        // 1;
+    push @deadline, $context->{dns_started_at} + $total_seconds
+        if $total_seconds > 0;
+
+    my $remaining_processing_ms = $context->remaining_processing_ms;
+    push @deadline, $now + ($remaining_processing_ms / 1_000)
+        if defined $remaining_processing_ms;
+
+    my $deadline = @deadline
+        ? (sort { $a <=> $b } @deadline)[0]
+        : undef;
+
+    if (defined $deadline && $deadline <= $now) {
+        return (undef, _dns_budget_error($context) || 'dns-query-timeout');
+    }
+
+    my $handle = $resolver->bgsend($query_name, 'A');
+    return (undef, $resolver->errorstring || 'dns-send-failure')
+        unless $handle;
+
+    while ($resolver->bgbusy($handle)) {
+        my $budget_error = _dns_budget_error($context);
+        return (undef, $budget_error) if $budget_error;
+
+        $now = time;
+        return (undef, 'dns-query-timeout')
+            if defined $deadline && $now >= $deadline;
+
+        my $pause = 0.01;
+        if (defined $deadline) {
+            my $remaining = $deadline - $now;
+            $pause = $remaining if $remaining < $pause;
+        }
+        sleep($pause) if $pause > 0;
+    }
+
+    my $packet = $resolver->bgread($handle);
+    return ($packet, undef) if $packet;
+    return (undef, $resolver->errorstring || 'dns-no-response');
+}
+
 # Function: _resolver
 # Purpose: Lazily constructs and reuses one Net::DNS resolver per nnrpd process.
 # Parameters: $context
@@ -399,6 +470,8 @@ sub _resolver {
     my $timeout =
         $context->{config}{timeouts}{dns_query_seconds}
         // 1;
+    $resolver->retry(1);
+    $resolver->retrans($timeout);
     $resolver->udp_timeout($timeout);
     $resolver->tcp_timeout($timeout);
 
