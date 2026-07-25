@@ -40,3 +40,9 @@ postfilterctl test-article
 Operational examples include `bofh.team` administrator identities,
 `miakibot@miakinen.net`, local TOR networks and Steve Carroll sender variants.
 Incorrect regex forms appear only in comments with corrected replacements.
+
+## Companion Cleanfeed-NG hooks
+
+- `cleanfeed-local-hooks/` — complete audit-first `cleanfeed.local` functions,
+  adapted historical signatures and a modern composite spam example. These are
+  copied manually into Cleanfeed-NG and are not loaded by Postfilter-NG.
