@@ -25,6 +25,9 @@ Test groups:
   header deletion, runtime ownership initialization and database diagnostics.
 - `20-operational-hardening.t` — stable generation reuse/retention, delayed budget
   start, phase timing, TOR-header observability and irreversible privilege drop.
+- `21-portability-and-dns-deadlines.t` — portable source shebangs,
+  installer-generated runtime paths, asynchronous hard DNS deadlines and
+  single-shot processing-timeout reporting.
 
 `sqlite-concurrency.py` uses Python's standard `sqlite3` module for WAL and
 schema stress. Repeat load testing through Perl DBI/DBD::SQLite on the target INN
@@ -33,3 +36,6 @@ reader before production enforcement.
 Fixtures under `examples/minimal-reader`, `examples/mixed-reader` and
 `examples/text-mime-strict` distinguish raw client input, INN hook input, text
 payload rejection, binary payload acceptance and mixed-crosspost rejection.
+- `22-installer-upgrade-paths.t` — exact historical-path migration, timestamped
+  backups, custom-path preservation, path-adjusted `.dist` snapshots and failed
+  upgrade diagnostics.

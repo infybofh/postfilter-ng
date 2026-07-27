@@ -13,3 +13,12 @@ checks run without temporary path environment variables. Runtime state and
 saved-article trees are normalized to that account after initialization.
 Configuration and keys remain owned by `root` with the INN group granted read
 access.
+
+
+## Upgrade diagnostics
+
+`--upgrade` migrates exact historical shipped paths in preserved TOML files,
+creates timestamped backups and installs path-adjusted `*.dist` references. It
+then validates both explicit bootstrap paths and the generated defaults in a
+clean Perl environment. A failed activated tree is retained beside the prefix
+with a `.failed.<timestamp>.<pid>` suffix before rollback.

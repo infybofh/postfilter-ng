@@ -41,6 +41,7 @@ preserved unless C<--force-config> is explicitly supplied.
 =cut
 
 use FindBin qw($RealBin);
+use lib "$RealBin/../lib";
 use Config ();
 use Cwd qw(abs_path);
 use File::Basename qw(dirname);
@@ -49,6 +50,11 @@ use File::Path qw(make_path remove_tree);
 use Fcntl qw(:DEFAULT);
 use Getopt::Long qw(GetOptions);
 use POSIX ();
+
+use Postfilter::InstallUpgrade qw(
+    migrate_legacy_path_files
+    write_distribution_snapshot
+);
 
 my %option = (
     config_dir     => '/etc/news/postfilter-ng',
@@ -117,6 +123,7 @@ _check_dependencies() unless $option{skip_dependency_check};
 
 my $staging_directory = "$option{prefix}.stage.$$";
 my $backup_directory  = "$option{prefix}.backup.$$";
+my $failed_directory  = "$option{prefix}.failed." . _timestamp_compact() . ".$$";
 my $code_activated = 0;
 
 _execute(sub {
@@ -148,6 +155,11 @@ _execute(sub {
     my $main_installed = _install_configuration_files();
     _replace_default_paths("$option{config_dir}/postfilter.toml")
         if $main_installed;
+
+    if ($option{upgrade} && !$option{force_config}) {
+        _migrate_existing_configuration_paths();
+        _install_distribution_configuration_snapshots();
+    }
 
     # Parse the final operator configuration so custom key paths are respected.
     # All four keys are created even if their features are currently disabled.
@@ -186,15 +198,27 @@ _execute(sub {
 });
 
 _execute(sub {
-    # Deliberately omit POSTFILTER_CONFIG, POSTFILTER_STATE_DIR and command-line
-    # path overrides here.  These checks prove that the installer-generated
-    # runtime defaults are sufficient for postfilterctl and embedded nnrpd.
     my @base_command = ("$option{prefix}/bin/postfilterctl");
+    my @explicit_command = (
+        @base_command,
+        '--config', "$option{config_dir}/postfilter.toml",
+        '--state-dir', $option{state_dir},
+    );
 
-    _run_as_runtime_user(@base_command, 'check-config')
+    # Bootstrap validation uses explicit detected paths.  This distinguishes a
+    # malformed operator configuration from a broken generated path module.
+    _run_as_runtime_user(@explicit_command, 'check-config')
         or die "Configuration validation failed for runtime user $option{user}\n";
-    _run_as_runtime_user(@base_command, 'db-migrate')
+    _run_as_runtime_user(@explicit_command, 'db-migrate')
         or die "SQLite initialisation failed for runtime user $option{user}\n";
+
+    # These checks deliberately omit environment and command-line overrides.
+    # They prove which InstallPaths.pm was loaded and verify its exact values.
+    _verify_install_paths_module();
+    _run_as_runtime_user(@base_command, 'check-config')
+        or die "Generated runtime configuration path validation failed\n";
+    _run_as_runtime_user(@base_command, 'db-check')
+        or die "Generated runtime state path validation failed\n";
     _verify_embedded_hook_candidate();
 
     # Normalise ownership and modes after initialization as a final safety net
@@ -384,7 +408,9 @@ sub _check_dependencies {
     my @missing;
     for my $requirement (@required) {
         my ($module, $package_hint) = @{$requirement};
-        my $available = system($^X, "-M$module", '-e', '1') == 0;
+        my $available = _system_with_clean_perl_environment(
+            $perl_path, "-M$module", '-e', '1',
+        ) == 0;
         push @missing, "$module ($package_hint)" unless $available;
     }
 
@@ -451,7 +477,9 @@ sub _compile_tree {
     );
 
     for my $file (@files) {
-        system($^X, "-I$directory/lib", '-c', $file) == 0
+        _system_with_clean_perl_environment(
+            $perl_path, "-I$directory/lib", '-c', $file,
+        ) == 0
             or die "Compilation failed: $file\n";
     }
 
@@ -520,7 +548,7 @@ package Postfilter::InstallPaths;
 use strict;
 use warnings;
 
-our \$VERSION = '2026.07.5-rc4';
+our \$VERSION = '2026.07.5-rc5';
 
 use constant CONFIG_FILE => $config_file;
 use constant STATE_DIR   => $state_directory;
@@ -548,7 +576,9 @@ MODULE
     rename $temporary, $path
         or die "Unable to activate generated path module $path: $!";
 
-    system($perl_path, "-I$option{prefix}/lib", '-c', $path) == 0
+    _system_with_clean_perl_environment(
+        $perl_path, "-I$option{prefix}/lib", '-c', $path,
+    ) == 0
         or die "Generated runtime path module does not compile: $path\n";
 
     return;
@@ -654,23 +684,105 @@ sub _install_config_file {
 sub _replace_default_paths {
     my ($path) = @_;
 
-    open my $input, '<', $path or die "Unable to read $path: $!";
+    open my $input, '<:raw', $path or die "Unable to read $path: $!";
     local $/;
     my $text = <$input>;
-    close $input;
+    close $input or die "Unable to close $path: $!";
 
-    $text =~ s{/var/lib/news/postfilter-ng}{$option{state_dir}}g;
-    $text =~ s{/var/spool/news/postfilter-ng/rejected}{$option{saved_dir}}g;
-    $text =~ s{/var/www/html/postfilter/index.html}{$option{html_dir}/index.html}g;
-    $text =~ s{/var/lib/news/active}{$option{active_file}}g;
-    $text =~ s{/usr/lib/news/bin/innmail}{$option{sendmail}}g;
-    $text =~ s{/etc/news/postfilter-ng}{$option{config_dir}}g;
+    for my $pair (@{ _legacy_path_replacements() }) {
+        my ($old, $replacement) = @{$pair};
+        $text =~ s{\Q$old\E(?=/|["']|\z)}{$replacement}g;
+    }
 
-    open my $output, '>', $path or die "Unable to write $path: $!";
-    print {$output} $text;
-    close $output;
+    my $temporary = "$path.tmp.$$";
+    open my $output, '>:raw', $temporary
+        or die "Unable to create $temporary: $!";
+    print {$output} $text
+        or die "Unable to write $temporary: $!";
+    close $output
+        or die "Unable to close $temporary: $!";
+    chmod 0640, $temporary
+        or die "Unable to chmod $temporary: $!";
+    rename $temporary, $path
+        or die "Unable to activate rewritten configuration $path: $!";
     return;
 }
+
+# Function: _legacy_path_replacements
+# Purpose: Returns exact historical shipped defaults and their detected site-local replacements.
+# Parameters: None.
+# Operational notes: Long paths are listed first and replacement requires a path boundary.
+sub _legacy_path_replacements {
+    return [
+        ['/var/spool/news/postfilter-ng/rejected', $option{saved_dir}],
+        ['/var/lib/news/postfilter-ng',           $option{state_dir}],
+        ['/var/www/html/postfilter',              $option{html_dir}],
+        ['/var/lib/news/active',                  $option{active_file}],
+        ['/usr/lib/news/bin/innmail',             $option{sendmail}],
+        ['/etc/news/postfilter-ng',               $option{config_dir}],
+    ];
+}
+
+# Function: _migrate_existing_configuration_paths
+# Purpose: Migrates only historical shipped path defaults in preserved operator TOML files.
+# Parameters: None.
+# Operational notes: Every changed file is backed up before replacement; custom paths remain intact.
+sub _migrate_existing_configuration_paths {
+    my @files = (
+        "$option{config_dir}/postfilter.toml",
+        sort glob("$option{config_dir}/conf.d/*.toml"),
+    );
+    my $backup_root = "$option{config_dir}/upgrade-backups/"
+        . _timestamp_compact() . "-$$";
+
+    my $result = migrate_legacy_path_files(
+        files        => \@files,
+        replacements => _legacy_path_replacements(),
+        config_root  => $option{config_dir},
+        backup_root  => $backup_root,
+        log          => sub {
+            my ($path, $backup, $count) = @_;
+            print "Migrated $count historical path value(s) in $path\n";
+            print "  backup: $backup\n";
+        },
+    );
+
+    if ($result->{replacement_count}) {
+        print "Migrated $result->{replacement_count} historical path value(s) "
+            . "across " . scalar(@{ $result->{changed_files} }) . " configuration file(s).\n";
+        print "Upgrade backup directory: $result->{backup_root}\n";
+    }
+    else {
+        print "No historical default paths required migration.\n";
+    }
+
+    return;
+}
+
+# Function: _install_distribution_configuration_snapshots
+# Purpose: Installs current path-adjusted TOML examples beside preserved operator files as .dist.
+# Parameters: None.
+# Operational notes: .dist files are not loaded by Postfilter-NG and are safe for manual comparison.
+sub _install_distribution_configuration_snapshots {
+    write_distribution_snapshot(
+        source       => "$source_root/conf/postfilter.toml",
+        destination  => "$option{config_dir}/postfilter.toml.dist",
+        replacements => _legacy_path_replacements(),
+    );
+
+    for my $source (sort glob("$source_root/conf/conf.d/*.toml")) {
+        my ($name) = $source =~ m{/([^/]+)\z};
+        write_distribution_snapshot(
+            source       => $source,
+            destination  => "$option{config_dir}/conf.d/$name.dist",
+            replacements => _legacy_path_replacements(),
+        );
+    }
+
+    print "Installed current configuration references as *.dist files.\n";
+    return;
+}
+
 
 # Function: _configured_key_paths
 # Purpose: Loads main TOML plus fragments and resolves all four effective purpose-specific key
@@ -899,6 +1011,53 @@ sub _install_command_links {
     return;
 }
 
+# Function: _verify_install_paths_module
+# Purpose: Proves that a clean new Perl process loads the generated module from the active prefix.
+# Parameters: None.
+# Operational notes: Exact module, configuration and state paths are compared before hook testing.
+sub _verify_install_paths_module {
+    my $expected_module = "$option{prefix}/lib/Postfilter/InstallPaths.pm";
+    my $expected_config = "$option{config_dir}/postfilter.toml";
+    my $expected_state = $option{state_dir};
+
+    my $program = <<'PERL';
+use strict;
+use warnings;
+use Cwd qw(abs_path);
+
+my ($expected_module, $expected_config, $expected_state) = @ARGV;
+my $loaded_module = $INC{'Postfilter/InstallPaths.pm'} // '';
+my $loaded_absolute = abs_path($loaded_module) // $loaded_module;
+my $expected_absolute = abs_path($expected_module) // $expected_module;
+my $config = Postfilter::InstallPaths::config_file();
+my $state = Postfilter::InstallPaths::state_dir();
+
+print "InstallPaths module=$loaded_absolute\n";
+print "InstallPaths config=$config\n";
+print "InstallPaths state=$state\n";
+
+die "Unexpected InstallPaths module: $loaded_absolute\n"
+    unless $loaded_absolute eq $expected_absolute;
+die "Unexpected generated configuration path: $config\n"
+    unless $config eq $expected_config;
+die "Unexpected generated state path: $state\n"
+    unless $state eq $expected_state;
+PERL
+
+    _run_as_runtime_user(
+        $perl_path,
+        "-I$option{prefix}/lib",
+        '-MPostfilter::InstallPaths',
+        '-e',
+        $program,
+        $expected_module,
+        $expected_config,
+        $expected_state,
+    ) or die "Generated InstallPaths.pm verification failed\n";
+
+    return;
+}
+
 # Function: _verify_embedded_hook_candidate
 # Purpose: Loads the candidate as nnrpd does and constructs the engine without path overrides.
 # Parameters: None.
@@ -1023,6 +1182,37 @@ sub _chown_tree {
     return;
 }
 
+# Function: _clear_perl_environment
+# Purpose: Removes inherited Perl library and build variables before installer verification.
+# Parameters: None.
+# Operational notes: This prevents an older site-local module from shadowing the activated prefix.
+sub _clear_perl_environment {
+    delete @ENV{qw(
+        PERL5LIB PERLLIB PERL5OPT PERL_LOCAL_LIB_ROOT PERL_MB_OPT PERL_MM_OPT
+        POSTFILTER_CONFIG POSTFILTER_STATE_DIR
+    )};
+    return;
+}
+
+# Function: _system_with_clean_perl_environment
+# Purpose: Executes one command after locally removing inherited Perl path and option variables.
+# Parameters: @command
+# Operational notes: The parent environment is restored automatically after system returns.
+sub _system_with_clean_perl_environment {
+    my (@command) = @_;
+    local %ENV = %ENV;
+    _clear_perl_environment();
+    return system { $command[0] } @command;
+}
+
+# Function: _timestamp_compact
+# Purpose: Returns one UTC timestamp safe for backup and failed-install directory names.
+# Parameters: None.
+# Operational notes: PID suffixes supplied by callers make same-second names unique.
+sub _timestamp_compact {
+    return POSIX::strftime('%Y%m%dT%H%M%SZ', gmtime());
+}
+
 # Function: _run_as_runtime_user
 # Purpose: Executes one installer validation command with the configured INN uid and gid.
 # Parameters: @command
@@ -1045,8 +1235,7 @@ sub _run_as_runtime_user {
         $ENV{HOME} = $home if defined $home && length $home;
         $ENV{USER} = $option{user};
         $ENV{LOGNAME} = $option{user};
-        delete $ENV{POSTFILTER_CONFIG};
-        delete $ENV{POSTFILTER_STATE_DIR};
+        _clear_perl_environment();
 
         # Clear inherited root-only supplementary groups, then drop real,
         # effective and saved group/user IDs before executing postfilterctl.
@@ -1097,13 +1286,24 @@ sub _execute {
 
     my $error = $@ || 'unknown installer error';
 
+    my $preserved_failed = '';
     if ($code_activated && -e $option{prefix}) {
-        remove_tree($option{prefix});
+        if (rename $option{prefix}, $failed_directory) {
+            $preserved_failed = $failed_directory;
+        }
+        else {
+            remove_tree($option{prefix});
+        }
     }
     if (-d $backup_directory && !-e $option{prefix}) {
-        rename $backup_directory, $option{prefix};
+        rename $backup_directory, $option{prefix}
+            or die "Unable to restore $backup_directory to $option{prefix}: $!\n";
     }
 
+    if ($preserved_failed) {
+        die $error
+            . "Failed installation tree preserved at $preserved_failed\n";
+    }
     die $error;
 }
 

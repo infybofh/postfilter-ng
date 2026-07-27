@@ -7,3 +7,5 @@ here.
 `Postfilter::InstallPaths` contains portable source-tree defaults. The installer
 regenerates that module in the activated prefix with the configuration file and
 state directory discovered from `innconfval` or explicit options.
+
+`Postfilter::InstallUpgrade` provides non-destructive exact-path migration and `.dist` snapshot helpers used by the installer.

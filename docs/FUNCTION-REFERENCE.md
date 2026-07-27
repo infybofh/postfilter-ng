@@ -70,16 +70,23 @@ failure policy, concurrency, security implications and side effects.
 | `_install_configuration_files` | Installs main/fragments/assets while preserving operator files on upgrade. | `No positional parameters, or arguments are read directly by the command wrapper.` |
 | `_install_config_file` | Copies one configuration asset only when policy permits replacement. | `$source, $destination` |
 | `_replace_default_paths` | Rewrites shipped path defaults to detected or explicitly supplied installation paths. | `$path` |
+| `_legacy_path_replacements` | Returns exact historical shipped defaults and their detected site-local replacements. | `None.` |
+| `_migrate_existing_configuration_paths` | Migrates only historical shipped path defaults in preserved operator TOML files. | `None.` |
+| `_install_distribution_configuration_snapshots` | Installs current path-adjusted TOML examples beside preserved operator files as `.dist`. | `None.` |
 | `_configured_key_paths` | Loads main TOML plus fragments and resolves all four effective purpose-specific key paths. | `$configuration_path` |
 | `_configured_saved_subdirectories` | Resolves and validates the text and binary diagnostic directory names. | `$configuration_path` |
 | `_load_installer_configuration` | Loads main TOML plus sorted fragments for installer path/key decisions. | `$configuration_path` |
 | `_merge_configuration_hash` | Recursively merges installer-only configuration tables used to resolve key paths. | `$destination, $source` |
 | `_create_random_key` | Creates and verifies one non-overwritten 64-byte key from /dev/urandom. | `$path, $purpose` |
 | `_install_command_links` | Creates the review-only INN hook candidate and the postfilterctl command link. | `No positional parameters, or arguments are read directly by the command wrapper.` |
+| `_verify_install_paths_module` | Proves that a clean new Perl process loads the generated module from the active prefix. | `None.` |
 | `_verify_embedded_hook_candidate` | Loads the candidate as nnrpd does and constructs the engine without path overrides. | `No positional parameters.` |
 | `_print_activation_notice` | Shows the exact candidate and active hook paths after a successful installation. | `No positional parameters.` |
 | `_set_configuration_ownership` | Recursively applies root:news-style ownership and non-writable configuration permissions. | `$directory, $group` |
 | `_chown_tree` | Recursively assigns runtime ownership and documented directory/file modes. | `$directory, $user, $group, $directory_mode, $file_mode` |
+| `_clear_perl_environment` | Removes inherited Perl library and build variables before installer verification. | `None.` |
+| `_system_with_clean_perl_environment` | Executes one command after locally removing inherited Perl path and option variables. | `@command` |
+| `_timestamp_compact` | Returns one UTC timestamp safe for backup and failed-install directory names. | `None.` |
 | `_run_as_runtime_user` | Executes one installer validation command with the configured INN uid and gid. | `@command` |
 | `_execute` | Runs one installer phase and restores the previous code prefix if the phase fails. | `$code` |
 | `_uninstall` | Removes code and symlinks while preserving SQLite state and saved articles by default. | `No positional parameters, or arguments are read directly by the command wrapper.` |
@@ -368,6 +375,15 @@ failure policy, concurrency, security implications and side effects.
 | `reputation` | Writes level-7 DNS reputation diagnostics. | `$s, $m, %f` |
 | `rules` | Writes level-8 rule and scoring diagnostics. | `$s, $m, %f` |
 | `trace` | Writes level-9 detailed execution timing and trace data. | `$s, $m, %f` |
+
+## `lib/Postfilter/InstallUpgrade.pm`
+
+| Function | Purpose | Parameters |
+|---|---|---|
+| `migrate_legacy_path_files` | Replaces exact historical default paths in existing TOML files after backing them up. | `%arguments` |
+| `write_distribution_snapshot` | Writes one shipped configuration file as a path-adjusted `.dist` comparison copy. | `%arguments` |
+| `_read_file` | Reads one file without character decoding. | `$path` |
+| `_atomic_write_preserving_mode` | Atomically replaces one file while retaining or explicitly setting its mode. | `$path, $text, optional $mode` |
 
 ## `lib/Postfilter/InstallPaths.pm`
 

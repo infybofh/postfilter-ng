@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026.07.5-rc5 — 2026-07-27
+
+Non-destructive FreeBSD upgrade migration and installer self-diagnostics from
+the first external rc4 upgrade report.
+
+- validates the generated `Postfilter::InstallPaths` module in a clean new Perl
+  process and prints the exact module, configuration and state paths loaded;
+- clears inherited `PERL5LIB`, `PERLLIB`, `PERL5OPT` and Perl build variables
+  during dependency, compile and runtime verification so an older site-local
+  module cannot shadow the activated prefix;
+- performs bootstrap `check-config` and `db-migrate` with explicit detected
+  paths, then repeats validation and `db-check` without any path override;
+- migrates only exact historical Linux path defaults in preserved TOML files,
+  leaving genuinely custom paths unchanged;
+- creates timestamped backups before changing operator configuration and writes
+  path-adjusted `*.dist` files for manual comparison with the current release;
+- preserves a failed activated code tree as `<prefix>.failed.<timestamp>.<pid>`
+  before restoring the previous prefix, so generated paths and loaded modules
+  remain available for diagnosis;
+- adds functional regression tests for exact path migration, backup creation,
+  custom-path preservation, distribution snapshots and repeated upgrades;
+- keeps Cleanfeed-NG local-hook material in the separate Cleanfeed-NG project.
+
 ## 2026.07.5-rc4 — 2026-07-25
 
 FreeBSD portability, persistent installer paths and hard DNS deadlines from the
@@ -26,9 +49,6 @@ first external deployment report.
 - documents the intentional `root:<news-group>` read-only ownership of
   configuration and keys, with `news:news` ownership reserved for mutable state
   and saved articles;
-- adds complete audit-first `cleanfeed.local` examples, including adapted
-  historical Steve Crook signatures and a modern composite recruitment/URL
-  flood example;
 - adds portability, generated-path, asynchronous-DNS and single-timeout
   regression tests.
 

@@ -22,7 +22,7 @@ Postfilter-NG is a Perl posting filter for the INN `nnrpd` service. It validates
 articles before acceptance, applies text and binary policies, records searchable
 audit events in SQLite, and supports staged deployment through audit mode.
 
-> **Version:** `2026.07.5-rc4`  
+> **Version:** `2026.07.5-rc5`  
 > **Status:** **Release candidate**  
 > **Runtime:** [Perl](https://www.perl.org/) 5.38 or newer and
 > [INN](https://www.eyrie.org/~eagle/software/inn/) 2.x  
@@ -208,22 +208,14 @@ administrative audit event.
 - `postfilter` — INN Perl hook target; the installer stages `filter_nnrpd.pl.ng` for review.
 - `lib/Postfilter/` — engine, context, checks, storage, reporting and utilities.
 - `conf/` — canonical TOML configuration and local custom-rule module.
-- `examples/` — focused configurations, article fixtures and audit-first Cleanfeed-NG local-hook examples.
+- `examples/` — focused configurations and article fixtures.
 - `bin/postfilterctl` — administration command.
-- `installer/install-postfilter` — installation, upgrade and rollback tool.
+- `installer/install-postfilter` — transactional installation, exact-path upgrade migration and rollback diagnostics.
 - `migrations/` — SQLite schema and upgrade migrations.
 - `packaging/` — optional systemd report service and timer.
 - `share/` — Public Suffix data and report assets.
 - `tests/` — regression, policy, security and concurrency tests.
 - `docs/` — installation, architecture, configuration, security and references.
-
-## Cleanfeed-NG companion hooks
-
-[`examples/cleanfeed-local-hooks/`](examples/cleanfeed-local-hooks/) contains
-complete, disabled-by-policy local-hook examples for Cleanfeed-NG. The pack
-includes adapted historical signatures from Steve Crook's public sample and
-newer composite rules. It defaults to save-and-allow audit behaviour and is not
-loaded by Postfilter-NG.
 
 ## Documentation
 
@@ -248,7 +240,7 @@ YYYY.MM.patch-stageN
 Examples:
 
 ```text
-2026.07.5-rc4
+2026.07.5-rc5
 2026.07.5
 ```
 

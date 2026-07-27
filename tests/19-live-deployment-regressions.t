@@ -107,7 +107,7 @@ like(
 );
 like(
     $installer,
-    qr/_run_as_runtime_user\(\@base_command, 'db-migrate'\)/,
+    qr/_run_as_runtime_user\(\@explicit_command, 'db-migrate'\)/,
     'installer initializes SQLite as the runtime INN account',
 );
 unlike(

@@ -89,6 +89,40 @@ shebangs are pinned to the current Perl interpreter, all Perl files are compiled
 and the prefix is activated transactionally. Existing operator configuration is
 preserved during upgrade unless `--force-config` is supplied.
 
+### Upgrade path migration
+
+With `--upgrade`, rc5 scans the preserved main TOML file and active `conf.d/*.toml`
+fragments for exact historical shipped defaults such as:
+
+```text
+/etc/news/postfilter-ng
+/var/lib/news/postfilter-ng
+/var/spool/news/postfilter-ng/rejected
+/var/www/html/postfilter
+/var/lib/news/active
+/usr/lib/news/bin/innmail
+```
+
+Only complete path values are replaced. Paths that merely share a prefix, such
+as `/etc/news/postfilter-ng-custom`, remain unchanged.
+
+Before modifying any operator file, the installer creates a timestamped backup
+under:
+
+```text
+<config_dir>/upgrade-backups/YYYYMMDDTHHMMSSZ-<pid>/
+```
+
+It also writes the current release configuration beside the preserved files as:
+
+```text
+postfilter.toml.dist
+conf.d/<fragment>.toml.dist
+```
+
+The `.dist` files contain the detected site-local paths and are not loaded by
+Postfilter-NG.
+
 ## 5. Ownership and keys
 
 Setup creates four independent 512-bit keys from `/dev/urandom`:
@@ -162,15 +196,25 @@ Before reporting success, the installer performs all of these checks:
 
 1. compiles the staged code with the selected Perl interpreter;
 2. generates and compiles `Postfilter::InstallPaths`;
-3. runs installed `postfilterctl check-config` as the INN account without path
-   environment variables or command-line path overrides;
-4. runs installed `postfilterctl db-migrate` under the same conditions;
-5. loads `filter_nnrpd.pl.ng` through Perl `do` with an nnrpd-like `$0`;
-6. constructs and shuts down the Postfilter-NG engine through that embedded-hook
+3. clears inherited Perl library and option variables during validation;
+4. runs `postfilterctl check-config` and `db-migrate` with the detected paths
+   supplied explicitly;
+5. starts a clean Perl process, loads `Postfilter::InstallPaths` from the active
+   prefix and compares the loaded module, configuration file and state directory
+   with the installation plan;
+6. repeats `postfilterctl check-config` and runs `db-check` without environment
+   variables or command-line path overrides;
+7. loads `filter_nnrpd.pl.ng` through Perl `do` with an nnrpd-like `$0`;
+8. constructs and shuts down the Postfilter-NG engine through that embedded-hook
    path.
 
-A mismatch between detected paths and runtime paths therefore stops installation
-before the candidate is activated.
+A mismatch between detected paths and runtime paths stops installation before
+the candidate is activated. If an activated upgrade fails, the previous prefix
+is restored and the failed tree is retained as:
+
+```text
+<prefix>.failed.<UTC timestamp>.<pid>
+```
 
 ## 8. Verify before activation
 
