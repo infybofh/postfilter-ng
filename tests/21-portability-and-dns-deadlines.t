@@ -78,12 +78,12 @@ like(
 );
 like(
     $source{'installer/install-postfilter'},
-    qr/sub _verify_embedded_hook_candidate/,
-    'installer verifies embedded hook construction before activation',
+    qr/sub _verify_hook_load/,
+    'installer verifies embedded hook construction and exact release identity',
 );
 like(
     $source{'installer/install-postfilter'},
-    qr/_rewrite_installed_shebangs\(\$staging_directory, \$perl_path\)/,
+    qr/_rewrite_installed_shebangs\(\$release_stage, \$perl_path\)/,
     'installer pins installed commands to the active Perl interpreter',
 );
 

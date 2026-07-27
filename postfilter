@@ -9,13 +9,12 @@ postfilter - INN filter_nnrpd.pl entry point for Postfilter-NG.
 
 =head1 INSTALLATION
 
-The installer creates a review-only candidate:
-
-  <pathfilter>/filter_nnrpd.pl.ng -> <prefix>/postfilter
-
-The newsmaster activates it explicitly by backing up any existing hook and
-renaming the candidate to C<filter_nnrpd.pl>.  INN then loads this file once for
-each nnrpd process.  The engine is constructed on
+Rc6 installs this entry point inside an immutable versioned release directory.
+The installer generates regular C<filter_nnrpd.pl.ng> and C<filter_nnrpd.pl>
+wrapper files that add the selected release library directory and load this file
+through Perl C<do>. The candidate wrapper is activated explicitly and is never a
+link to a mutable base prefix. INN loads the active wrapper once for each nnrpd
+process.  The engine is constructed on
 first use and reused for all POST commands in that client session.  C<filter_end>
 is an official nnrpd Perl-hook callback and closes the SQLite connection before
 INN unloads the filter.
@@ -28,8 +27,8 @@ use File::Basename ();
 BEGIN {
     # INN loads filter_nnrpd.pl through its embedded Perl interpreter.  In that
     # environment $0 identifies nnrpd, not this file, so FindBin cannot locate
-    # the installed module tree.  __FILE__ identifies the loaded hook and
-    # abs_path resolves the operator-created filter_nnrpd.pl symlink.
+    # the installed module tree. __FILE__ identifies this release-local entry
+    # point whether it was loaded directly or through an rc6 wrapper.
     my $entry_point = Cwd::abs_path(__FILE__) // __FILE__;
     my $project_root = File::Basename::dirname($entry_point);
     unshift @INC, "$project_root/lib";

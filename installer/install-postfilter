@@ -33,9 +33,10 @@ are applied.
 
 =head1 TRANSACTION MODEL
 
-Code is copied to a staging directory, syntax-checked and atomically activated.
-An existing prefix is renamed to a rollback directory until configuration
-validation and SQLite migration finish.  Existing operator configuration is
+Code is installed into immutable versioned release directories.  A regular
+C<filter_nnrpd.pl.ng> wrapper is pinned to the candidate release. Candidate
+installation does not modify the active C<filter_nnrpd.pl> hook.  Activation, rollback, legacy-layout migration
+and cleanup are explicit guarded operations. Existing operator configuration is
 preserved unless C<--force-config> is explicitly supplied.
 
 =cut
@@ -47,6 +48,8 @@ use Cwd qw(abs_path);
 use File::Basename qw(dirname);
 use File::Copy qw(copy);
 use File::Path qw(make_path remove_tree);
+use File::Spec;
+use JSON::PP;
 use Fcntl qw(:DEFAULT);
 use Getopt::Long qw(GetOptions);
 use POSIX ();
@@ -55,20 +58,32 @@ use Postfilter::InstallUpgrade qw(
     migrate_legacy_path_files
     write_distribution_snapshot
 );
+use Postfilter::ReleaseManager qw(
+    parse_hook_wrapper
+    read_release_marker
+    release_dir_is_managed
+    safe_release_directory
+    write_hook_wrapper
+    write_release_marker
+);
 
 my %option = (
-    config_dir     => '/etc/news/postfilter-ng',
-    dry_run        => 0,
-    force          => 0,
-    force_config   => 0,
-    group           => 'news',
-    html_dir        => '/var/www/html/postfilter',
-    prefix          => '/usr/local/lib/postfilter-ng',
-    saved_dir       => '/var/spool/news/postfilter-ng/rejected',
-    state_dir       => '/var/lib/news/postfilter-ng',
-    upgrade         => 0,
-    use_innconfval  => 1,
-    user            => 'news',
+    activate_candidate => 0,
+    cleanup            => 0,
+    config_dir         => '/etc/news/postfilter-ng',
+    dry_run            => 0,
+    force              => 0,
+    force_config       => 0,
+    group              => 'news',
+    html_dir           => '/var/www/html/postfilter',
+    keep_releases      => 2,
+    prefix             => '/usr/local/lib/postfilter-ng',
+    rollback           => 0,
+    saved_dir          => '/var/spool/news/postfilter-ng/rejected',
+    state_dir          => '/var/lib/news/postfilter-ng',
+    upgrade            => 0,
+    use_innconfval     => 1,
+    user               => 'news',
 );
 
 my $state_was_overridden  = grep { /^--state-dir(?:=|$)/ } @ARGV;
@@ -76,8 +91,11 @@ my $saved_was_overridden  = grep { /^--saved-dir(?:=|$)/ } @ARGV;
 my $config_was_overridden = grep { /^--config-dir(?:=|$)/ } @ARGV;
 my $active_was_overridden = grep { /^--active-file(?:=|$)/ } @ARGV;
 my $sendmail_was_overridden = grep { /^--sendmail(?:=|$)/ } @ARGV;
+my $keep_releases_was_overridden = grep { /^--keep-releases(?:=|$)/ } @ARGV;
 
 GetOptions(
+    'activate-candidate!'     => \$option{activate_candidate},
+    'cleanup!'                => \$option{cleanup},
     'active-file=s'          => \$option{active_file},
     'config-dir=s'           => \$option{config_dir},
     'ctl-bin=s'              => \$option{ctl_bin},
@@ -90,8 +108,10 @@ GetOptions(
     'html-dir=s'             => \$option{html_dir},
     'innconfval=s'           => \$option{innconfval},
     'keep-config!'           => \$option{keep_config},
+    'keep-releases=i'        => \$option{keep_releases},
     'no-innconfval'          => sub { $option{use_innconfval} = 0 },
     'prefix=s'               => \$option{prefix},
+    'rollback!'              => \$option{rollback},
     'saved-dir=s'            => \$option{saved_dir},
     'sendmail=s'             => \$option{sendmail},
     'skip-dependency-check!' => \$option{skip_dependency_check},
@@ -114,55 +134,387 @@ if ($option{uninstall}) {
     exit 0;
 }
 
+my $release_version = _read_release_version("$source_root/VERSION");
+my $releases_root = "$option{prefix}/releases";
+my $release_directory = "$releases_root/$release_version";
+my $release_stage = "$releases_root/.stage-$release_version-$$";
+my $candidate_hook = "$option{filter_dir}/filter_nnrpd.pl.ng";
+my $active_hook = "$option{filter_dir}/filter_nnrpd.pl";
+my $previous_hook = "$option{filter_dir}/filter_nnrpd.pl.previous";
+my $release_state_file = "$option{prefix}/release-state.json";
+my $legacy_manifest_file = "$option{prefix}/legacy-flat-manifest.json";
+
+if (!$keep_releases_was_overridden && -f $release_state_file) {
+    my $saved_state = eval { _read_json_file($release_state_file) } || {};
+    if (($saved_state->{keep_releases} // 0) >= 2) {
+        $option{keep_releases} = $saved_state->{keep_releases};
+    }
+}
+
 _print_plan();
+
+die "--keep-releases must be at least 2 so one rollback release is retained\n"
+    if $option{keep_releases} < 2;
 
 die "This installer must run as root, or use --dry-run.\n"
     if $> != 0 && !$option{dry_run};
 
+if ($option{activate_candidate}) {
+    _activate_candidate();
+    exit 0;
+}
+if ($option{rollback}) {
+    _rollback_active_hook();
+    exit 0;
+}
+if ($option{cleanup}) {
+    _cleanup_installation();
+    exit 0;
+}
+
 _check_dependencies() unless $option{skip_dependency_check};
+_install_release_candidate();
+exit 0;
 
-my $staging_directory = "$option{prefix}.stage.$$";
-my $backup_directory  = "$option{prefix}.backup.$$";
-my $failed_directory  = "$option{prefix}.failed." . _timestamp_compact() . ".$$";
-my $code_activated = 0;
+=head2 Immutable release lifecycle
 
-_execute(sub {
-    remove_tree($staging_directory) if -e $staging_directory;
-    make_path($staging_directory, { mode => 0755 });
-    _copy_tree($source_root, $staging_directory);
-    _rewrite_installed_shebangs($staging_directory, $perl_path);
-    _compile_tree($staging_directory);
-});
+=cut
 
-_execute(sub {
-    if (-e $option{prefix}) {
-        die "$option{prefix} exists; use --upgrade or --force\n"
-            unless $option{upgrade} || $option{force};
-        rename $option{prefix}, $backup_directory
-            or die "Unable to back up $option{prefix}: $!";
+sub _read_release_version {
+    my ($path) = @_;
+    open my $handle, '<:raw', $path or die "Unable to read $path: $!";
+    my $version = <$handle> // '';
+    close $handle or die "Unable to close $path: $!";
+    $version =~ s/[\r\n]+\z//;
+    die "Unsafe or empty release version in $path\n"
+        unless $version =~ /\A[A-Za-z0-9][A-Za-z0-9._-]*\z/;
+    return $version;
+}
+
+sub _reserved_prefix_entry {
+    my ($name) = @_;
+    return 1 if $name eq 'releases';
+    return 1 if $name eq 'current' || $name eq 'previous';
+    return 1 if $name eq 'release-state.json';
+    return 1 if $name eq 'legacy-flat-manifest.json';
+    return 1 if $name =~ /\A(?:\.stage-|\.failed-|\.replaced-)/;
+    return 0;
+}
+
+sub _legacy_flat_entries {
+    return [] unless -d $option{prefix};
+    return [] unless -f "$option{prefix}/postfilter";
+    return [] unless -d "$option{prefix}/lib/Postfilter";
+
+    opendir my $handle, $option{prefix}
+        or die "Unable to inspect $option{prefix}: $!";
+    my @entry = sort grep {
+        $_ ne '.' && $_ ne '..' && !_reserved_prefix_entry($_)
+    } readdir $handle;
+    closedir $handle;
+    return \@entry;
+}
+
+sub _read_json_file {
+    my ($path) = @_;
+    return {} unless -f $path;
+    open my $handle, '<:raw', $path or die "Unable to read $path: $!";
+    local $/;
+    my $text = <$handle>;
+    close $handle or die "Unable to close $path: $!";
+    my $decoded = eval { JSON::PP->new->decode($text) };
+    die "Unable to parse $path: $@" if $@;
+    die "$path does not contain a JSON object\n"
+        unless ref($decoded) eq 'HASH';
+    return $decoded;
+}
+
+sub _write_json_file {
+    my ($path, $value) = @_;
+    make_path(dirname($path), { mode => 0755 }) unless -d dirname($path);
+    my $temporary = "$path.tmp.$$";
+    open my $handle, '>:raw', $temporary
+        or die "Unable to create $temporary: $!";
+    print {$handle} JSON::PP->new->canonical->pretty->encode($value)
+        or die "Unable to write $temporary: $!";
+    close $handle or die "Unable to close $temporary: $!";
+    chmod 0644, $temporary or die "Unable to chmod $temporary: $!";
+    rename $temporary, $path or die "Unable to activate $path: $!";
+    return;
+}
+
+sub _copy_path {
+    my ($source, $destination) = @_;
+    if (-l $source) {
+        my $target = readlink $source;
+        die "Unable to read symlink $source: $!" unless defined $target;
+        symlink $target, $destination
+            or die "Unable to recreate symlink $destination: $!";
+        return;
+    }
+    if (-d $source) {
+        make_path($destination, { mode => ((stat($source))[2] & 07777) || 0755 });
+        _copy_tree($source, $destination);
+        return;
+    }
+    if (-f $source) {
+        copy($source, $destination) or die "Unable to copy $source: $!";
+        chmod((stat($source))[2] & 07777, $destination)
+            or die "Unable to chmod $destination: $!";
+        return;
+    }
+    die "Unsupported legacy path type: $source\n";
+}
+
+sub _detect_legacy_version {
+    for my $path ("$option{prefix}/VERSION") {
+        next unless -f $path;
+        my $version = eval { _read_release_version($path) };
+        return $version if defined $version && length $version;
     }
 
-    rename $staging_directory, $option{prefix}
-        or die "Unable to activate $staging_directory: $!";
-    $code_activated = 1;
-});
+    for my $path (
+        "$option{prefix}/lib/Postfilter/NG.pm",
+        "$option{prefix}/postfilter",
+    ) {
+        next unless -f $path;
+        open my $handle, '<:raw', $path or next;
+        local $/;
+        my $text = <$handle>;
+        close $handle;
+        if ($text =~ /(?:our\s+\$VERSION\s*=|Version:?)\s*['\"]?([A-Za-z0-9][A-Za-z0-9._-]*)/i) {
+            return $1;
+        }
+    }
+    return 'unknown-' . _timestamp_compact();
+}
 
-_execute(sub {
-    _write_install_paths_module(
-        "$option{prefix}/lib/Postfilter/InstallPaths.pm",
+sub _unique_release_name {
+    my ($base) = @_;
+    my $name = $base;
+    my $counter = 0;
+    while (-e "$releases_root/$name") {
+        $counter++;
+        $name = "$base-" . _timestamp_compact() . "-$$-$counter";
+    }
+    return $name;
+}
+
+sub _verify_hook_load {
+    my (%argument) = @_;
+    my $hook = $argument{hook} or die "Hook path is required\n";
+    my $construct_engine = $argument{construct_engine} ? 1 : 0;
+    my $expected_dir = $argument{expected_dir} // '';
+    my $expected_version = $argument{expected_version} // '';
+    my $program = <<'PERL_PROGRAM';
+use strict;
+use warnings;
+use Cwd qw(abs_path);
+my ($file, $construct, $expected_dir, $expected_version) = @ARGV;
+local $0 = '/usr/local/news/bin/nnrpd';
+my $loaded = do $file;
+die "Perl load error: $@" if $@;
+die "Operating-system error: $!" unless defined $loaded;
+die "Filter returned false\n" unless $loaded;
+die "filter_post() is unavailable\n" unless defined &main::filter_post;
+if (length $expected_dir) {
+    my $expected_ng = abs_path("$expected_dir/lib/Postfilter/NG.pm")
+        // "$expected_dir/lib/Postfilter/NG.pm";
+    my $loaded_ng = $INC{'Postfilter/NG.pm'} // '';
+    $loaded_ng = abs_path($loaded_ng) // $loaded_ng;
+    die "Hook loaded Postfilter::NG from $loaded_ng instead of $expected_ng\n"
+        unless $loaded_ng eq $expected_ng;
+
+    my $expected_paths = abs_path("$expected_dir/lib/Postfilter/InstallPaths.pm")
+        // "$expected_dir/lib/Postfilter/InstallPaths.pm";
+    my $loaded_paths = $INC{'Postfilter/InstallPaths.pm'} // '';
+    $loaded_paths = abs_path($loaded_paths) // $loaded_paths;
+    die "Hook loaded InstallPaths from $loaded_paths instead of $expected_paths\n"
+        unless $loaded_paths eq $expected_paths;
+}
+if (length $expected_version && $expected_version !~ /^unknown-/) {
+    my $runtime_version = $Postfilter::NG::VERSION // '';
+    die "Hook runtime version $runtime_version does not match $expected_version\n"
+        unless $runtime_version eq $expected_version;
+}
+if ($construct) {
+    die "Postfilter-NG engine entry point is unavailable\n"
+        unless defined &main::_engine;
+    my $engine = main::_engine();
+    die "Postfilter-NG engine construction failed\n" unless $engine;
+    $engine->shutdown;
+}
+print "Postfilter-NG embedded hook load OK\n";
+PERL_PROGRAM
+
+    return _run_as_runtime_user(
+        $perl_path, '-e', $program, $hook, $construct_engine,
+        $expected_dir, $expected_version,
     );
+}
+
+sub _verify_release_identity {
+    my (%argument) = @_;
+    my $directory = $argument{directory} or die "Release directory is required\n";
+    my $version = $argument{version} or die "Release version is required\n";
+    my ($safe, $marker) = release_dir_is_managed($option{prefix}, $directory);
+    die "Unmanaged release directory: $directory\n" unless $safe && $marker;
+    die "Release marker version mismatch in $directory\n"
+        unless $marker->{version} eq $version;
+    return $safe;
+}
+
+sub _verify_install_paths_module_for_release {
+    my ($directory) = @_;
+    my $expected_module = "$directory/lib/Postfilter/InstallPaths.pm";
+    my $expected_config = "$option{config_dir}/postfilter.toml";
+    my $expected_state = $option{state_dir};
+    my $program = <<'PERL_PROGRAM';
+use strict;
+use warnings;
+use Cwd qw(abs_path);
+my ($expected_module, $expected_config, $expected_state) = @ARGV;
+my $loaded_module = $INC{'Postfilter/InstallPaths.pm'} // '';
+my $loaded_absolute = abs_path($loaded_module) // $loaded_module;
+my $expected_absolute = abs_path($expected_module) // $expected_module;
+my $config = Postfilter::InstallPaths::config_file();
+my $state = Postfilter::InstallPaths::state_dir();
+print "InstallPaths module=$loaded_absolute\n";
+print "InstallPaths config=$config\n";
+print "InstallPaths state=$state\n";
+die "Unexpected InstallPaths module: $loaded_absolute\n"
+    unless $loaded_absolute eq $expected_absolute;
+die "Unexpected generated configuration path: $config\n"
+    unless $config eq $expected_config;
+die "Unexpected generated state path: $state\n"
+    unless $state eq $expected_state;
+PERL_PROGRAM
+
+    _run_as_runtime_user(
+        $perl_path,
+        "-I$directory/lib",
+        '-MPostfilter::InstallPaths',
+        '-e',
+        $program,
+        $expected_module,
+        $expected_config,
+        $expected_state,
+    ) or die "Generated InstallPaths.pm verification failed\n";
+    return;
+}
+
+sub _ensure_legacy_snapshot {
+    my $manifest = _read_json_file($legacy_manifest_file);
+    if (($manifest->{format} // 0) == 1 && $manifest->{snapshot_dir}) {
+        my ($safe, $marker) = release_dir_is_managed(
+            $option{prefix}, $manifest->{snapshot_dir},
+        );
+        if ($safe && $marker && $marker->{legacy}) {
+            print "Preserving existing legacy snapshot $safe\n";
+            return $manifest;
+        }
+    }
+
+    my $entries = _legacy_flat_entries();
+    return {} unless @{$entries};
+
+    my $legacy_version = _detect_legacy_version();
+    $legacy_version =~ s/[^A-Za-z0-9._-]+/-/g;
+    my $snapshot_name = _unique_release_name("legacy-$legacy_version");
+    my $outside_stage = "$option{prefix}.legacy-stage.$$";
+    my $snapshot_stage = "$outside_stage/$snapshot_name";
+    my $snapshot_directory = "$releases_root/$snapshot_name";
+
+    if ($option{dry_run}) {
+        print "[dry-run] would snapshot legacy flat installation as $snapshot_directory\n";
+        return {
+            format       => 1,
+            version      => $legacy_version,
+            snapshot_dir => $snapshot_directory,
+            validated    => JSON::PP::false,
+            flat_entries => $entries,
+        };
+    }
+
+    remove_tree($outside_stage) if -e $outside_stage;
+    make_path($snapshot_stage, { mode => 0755 });
+    for my $name (@{$entries}) {
+        _copy_path("$option{prefix}/$name", "$snapshot_stage/$name");
+    }
+    write_release_marker(
+        directory    => $snapshot_stage,
+        version      => $legacy_version,
+        legacy       => 1,
+        installed_at => scalar(gmtime()) . ' UTC',
+    );
+
+    make_path($releases_root, { mode => 0755 }) unless -d $releases_root;
+    rename $snapshot_stage, $snapshot_directory
+        or die "Unable to activate legacy snapshot $snapshot_directory: $!";
+    remove_tree($outside_stage) if -d $outside_stage;
+
+    my $verification_hook = "$option{prefix}/.legacy-verify-$$.pl";
+    write_hook_wrapper(
+        path        => $verification_hook,
+        release_dir => $snapshot_directory,
+        version     => $legacy_version,
+        perl        => $perl_path,
+    );
+    my $validated = _verify_hook_load(
+        hook             => $verification_hook,
+        construct_engine => 0,
+        expected_dir     => $snapshot_directory,
+        expected_version => $legacy_version,
+    ) ? 1 : 0;
+    unlink $verification_hook;
+
+    my $active_description = {};
+    if (-l $active_hook) {
+        $active_description = {
+            type   => 'symlink',
+            target => scalar(readlink($active_hook) // ''),
+        };
+    }
+    elsif (-f $active_hook) {
+        $active_description = { type => 'regular' };
+    }
+    else {
+        $active_description = { type => 'absent' };
+    }
+
+    $manifest = {
+        format          => 1,
+        created_at      => scalar(gmtime()) . ' UTC',
+        version         => $legacy_version,
+        snapshot_name   => $snapshot_name,
+        snapshot_dir    => $snapshot_directory,
+        validated       => $validated ? JSON::PP::true : JSON::PP::false,
+        flat_entries    => $entries,
+        original_active => $active_description,
+    };
+    _write_json_file($legacy_manifest_file, $manifest);
+
+    if ($validated) {
+        print "Legacy installation snapshot validated: $snapshot_directory\n";
+    }
+    else {
+        warn "Legacy installation was preserved but could not be validated as a rollback target.\n";
+        warn "Automatic legacy-flat cleanup will remain disabled.\n";
+    }
+    return $manifest;
+}
+
+sub _install_runtime_configuration {
     _create_runtime_directories();
     my $main_installed = _install_configuration_files();
     _replace_default_paths("$option{config_dir}/postfilter.toml")
         if $main_installed;
 
-    if ($option{upgrade} && !$option{force_config}) {
+    if (($option{upgrade} || -f $legacy_manifest_file) && !$option{force_config}) {
         _migrate_existing_configuration_paths();
         _install_distribution_configuration_snapshots();
     }
 
-    # Parse the final operator configuration so custom key paths are respected.
-    # All four keys are created even if their features are currently disabled.
     my $key_paths = _configured_key_paths(
         "$option{config_dir}/postfilter.toml"
     );
@@ -170,10 +522,6 @@ _execute(sub {
         _create_random_key($key_paths->{$purpose}, $purpose);
     }
 
-    # Create the independently configured text and binary diagnostic trees at
-    # install time.  SavedArticle also creates deeper date directories lazily,
-    # but these top-level paths make ownership and operator intent visible
-    # immediately after setup.
     my $saved_subdirectories = _configured_saved_subdirectories(
         "$option{config_dir}/postfilter.toml"
     );
@@ -184,7 +532,6 @@ _execute(sub {
         );
     }
 
-    _install_command_links();
     _set_configuration_ownership($option{config_dir}, $option{group});
     _chown_tree(
         $option{state_dir}, $option{user}, $option{group}, 0750, 0640,
@@ -195,55 +542,674 @@ _execute(sub {
     _chown_tree(
         $option{html_dir}, $option{user}, $option{group}, 0755, 0644,
     );
-});
+    return;
+}
 
-_execute(sub {
-    my @base_command = ("$option{prefix}/bin/postfilterctl");
+sub _install_release_tree {
+    my $replaced_directory = '';
+    if (-e $release_directory) {
+        my $active = parse_hook_wrapper($active_hook);
+        if ($active && ($active->{release_dir} // '') eq $release_directory) {
+            die "Refusing to replace active immutable release $release_directory\n";
+        }
+        die "$release_directory exists; use --upgrade or --force\n"
+            unless $option{upgrade} || $option{force};
+        $replaced_directory = "$releases_root/.replaced-$release_version-"
+            . _timestamp_compact() . "-$$";
+        rename $release_directory, $replaced_directory
+            or die "Unable to preserve existing $release_directory: $!";
+    }
+
+    remove_tree($release_stage) if -e $release_stage;
+    make_path($release_stage, { mode => 0755 });
+    my $success = eval {
+        _copy_tree($source_root, $release_stage);
+        _rewrite_installed_shebangs($release_stage, $perl_path);
+        _write_install_paths_module(
+            "$release_stage/lib/Postfilter/InstallPaths.pm",
+        );
+        write_release_marker(
+            directory    => $release_stage,
+            version      => $release_version,
+            legacy       => 0,
+            installed_at => scalar(gmtime()) . ' UTC',
+        );
+        _compile_tree($release_stage);
+        rename $release_stage, $release_directory
+            or die "Unable to activate release $release_directory: $!";
+        1;
+    };
+    return $replaced_directory if $success;
+
+    my $error = $@ || 'unknown release installation error';
+    my $failed = "$releases_root/.failed-$release_version-"
+        . _timestamp_compact() . "-$$";
+    if (-d $release_stage) {
+        rename $release_stage, $failed or remove_tree($release_stage);
+    }
+    if ($replaced_directory && -d $replaced_directory && !-e $release_directory) {
+        rename $replaced_directory, $release_directory
+            or die "$error\nUnable to restore $replaced_directory: $!\n";
+    }
+    die "$error\nFailed candidate tree preserved at $failed\n";
+}
+
+sub _install_candidate_wrapper {
+    make_path($option{filter_dir}, { mode => 0755 })
+        unless -d $option{filter_dir};
+    my $backup = '';
+    if (-e $candidate_hook || -l $candidate_hook) {
+        die "$candidate_hook exists; use --upgrade or --force\n"
+            unless $option{upgrade} || $option{force};
+        $backup = "$candidate_hook.pre-" . _timestamp_compact() . "-$$";
+        rename $candidate_hook, $backup
+            or die "Unable to preserve $candidate_hook: $!";
+    }
+
+    my $success = eval {
+        write_hook_wrapper(
+            path        => $candidate_hook,
+            release_dir => $release_directory,
+            version     => $release_version,
+            perl        => $perl_path,
+        );
+        my $group_id = getgrnam($option{group});
+        chown 0, $group_id, $candidate_hook if defined $group_id;
+        chmod 0644, $candidate_hook
+            or die "Unable to chmod $candidate_hook: $!";
+        1;
+    };
+    return $backup if $success;
+
+    my $error = $@ || 'unknown candidate-wrapper error';
+    unlink $candidate_hook if -e $candidate_hook || -l $candidate_hook;
+    rename $backup, $candidate_hook if $backup && -e $backup;
+    die $error;
+}
+
+sub _validate_candidate_release {
+    _verify_release_identity(
+        directory => $release_directory,
+        version   => $release_version,
+    );
+
+    my @base_command = ("$release_directory/bin/postfilterctl");
     my @explicit_command = (
         @base_command,
         '--config', "$option{config_dir}/postfilter.toml",
         '--state-dir', $option{state_dir},
     );
-
-    # Bootstrap validation uses explicit detected paths.  This distinguishes a
-    # malformed operator configuration from a broken generated path module.
     _run_as_runtime_user(@explicit_command, 'check-config')
         or die "Configuration validation failed for runtime user $option{user}\n";
     _run_as_runtime_user(@explicit_command, 'db-migrate')
         or die "SQLite initialisation failed for runtime user $option{user}\n";
-
-    # These checks deliberately omit environment and command-line overrides.
-    # They prove which InstallPaths.pm was loaded and verify its exact values.
-    _verify_install_paths_module();
+    _verify_install_paths_module_for_release($release_directory);
     _run_as_runtime_user(@base_command, 'check-config')
         or die "Generated runtime configuration path validation failed\n";
     _run_as_runtime_user(@base_command, 'db-check')
         or die "Generated runtime state path validation failed\n";
-    _verify_embedded_hook_candidate();
+    _verify_hook_load(
+        hook             => $candidate_hook,
+        construct_engine => 1,
+        expected_dir     => $release_directory,
+        expected_version => $release_version,
+    ) or die "Embedded nnrpd hook verification failed for $candidate_hook\n";
 
-    # Normalise ownership and modes after initialization as a final safety net
-    # for upgrades from older installers that created root-owned runtime files.
     _chown_tree(
         $option{state_dir}, $option{user}, $option{group}, 0750, 0640,
     );
     _chown_tree(
         $option{saved_dir}, $option{user}, $option{group}, 0750, 0640,
     );
-});
-
-_execute(sub {
-    remove_tree($backup_directory) if -d $backup_directory;
-});
-
-if ($option{dry_run}) {
-    print "Dry-run complete; no files were changed.\n";
+    return;
 }
-else {
+
+sub _install_release_candidate {
+    if (-d $option{prefix} && !$option{upgrade} && !$option{force}) {
+        opendir my $prefix_handle, $option{prefix}
+            or die "Unable to inspect $option{prefix}: $!";
+        my @existing = grep { $_ ne '.' && $_ ne '..' } readdir $prefix_handle;
+        closedir $prefix_handle;
+        die "$option{prefix} already contains an installation; use --upgrade\n"
+            if @existing;
+    }
+
+    if ($option{dry_run}) {
+        my $legacy = _legacy_flat_entries();
+        print "[dry-run] legacy flat installation detected\n" if @{$legacy};
+        print "[dry-run] would install immutable release $release_directory\n";
+        print "[dry-run] would create candidate wrapper $candidate_hook\n";
+        print "[dry-run] active hook $active_hook would not be modified\n";
+        print "[dry-run] no cleanup would be performed before activation\n";
+        return;
+    }
+
+    make_path($option{prefix}, { mode => 0755 }) unless -d $option{prefix};
+    make_path($releases_root, { mode => 0755 }) unless -d $releases_root;
+
+    my $legacy = _ensure_legacy_snapshot();
+    my $replaced_release = '';
+    my $candidate_backup = '';
+    my $success = eval {
+        $replaced_release = _install_release_tree();
+        _install_runtime_configuration();
+        $candidate_backup = _install_candidate_wrapper();
+        _validate_candidate_release();
+
+        my $state = _read_json_file($release_state_file);
+        $state->{format} = 1;
+        $state->{updated_at} = scalar(gmtime()) . ' UTC';
+        $state->{latest_installed} = {
+            version     => $release_version,
+            release_dir => $release_directory,
+        };
+        $state->{candidate} = {
+            version     => $release_version,
+            release_dir => $release_directory,
+            hook        => $candidate_hook,
+        };
+        $state->{keep_releases} = $option{keep_releases};
+        $state->{legacy_snapshot} = $legacy if %{$legacy};
+        _write_json_file($release_state_file, $state);
+        1;
+    };
+
+    if (!$success) {
+        my $error = $@ || 'unknown candidate installation error';
+        if (-e $candidate_hook || -l $candidate_hook) {
+            my $metadata = parse_hook_wrapper($candidate_hook);
+            unlink $candidate_hook
+                if $metadata && ($metadata->{release_dir} // '') eq $release_directory;
+        }
+        rename $candidate_backup, $candidate_hook
+            if $candidate_backup
+                && (-e $candidate_backup || -l $candidate_backup)
+                && !-e $candidate_hook
+                && !-l $candidate_hook;
+        if (-d $release_directory) {
+            my $failed = "$releases_root/.failed-$release_version-"
+                . _timestamp_compact() . "-$$";
+            rename $release_directory, $failed or warn "Unable to preserve $release_directory: $!\n";
+        }
+        rename $replaced_release, $release_directory
+            if $replaced_release && -d $replaced_release && !-e $release_directory;
+        die $error;
+    }
+
+    remove_tree($replaced_release) if $replaced_release && -d $replaced_release;
+    unlink $candidate_backup
+        if $candidate_backup && (-f $candidate_backup || -l $candidate_backup);
+
     print "Installation complete.\n";
-    print "The supplied policy remains in audit mode until the operator enables enforce.\n";
-    _print_activation_notice();
+    print "Candidate installed and validated: $release_version\n";
+    print "Candidate hook: $candidate_hook\n";
+    print "Active hook was not modified: $active_hook\n";
+    print "No cleanup was performed because the candidate is not active.\n";
+    print "Activate it with:\n";
+    print "  perl installer/install-postfilter --activate-candidate";
+    print " --html-dir $option{html_dir}" if defined $option{html_dir};
+    print "\n";
+    return;
 }
-exit 0;
+
+sub _atomic_symlink {
+    my ($target, $link) = @_;
+    my $temporary = "$link.tmp.$$";
+    unlink $temporary if -e $temporary || -l $temporary;
+    symlink $target, $temporary
+        or die "Unable to create symlink $temporary: $!";
+    rename $temporary, $link
+        or die "Unable to activate symlink $link: $!";
+    return;
+}
+
+sub _previous_release_for_activation {
+    my $active_metadata = parse_hook_wrapper($active_hook);
+    if ($active_metadata) {
+        my ($safe, $marker) = release_dir_is_managed(
+            $option{prefix}, $active_metadata->{release_dir},
+        );
+        if ($safe && $marker && $marker->{version} eq $active_metadata->{version}) {
+            return {
+                version     => $active_metadata->{version},
+                release_dir => $safe,
+                source      => 'managed-active-wrapper',
+            };
+        }
+    }
+
+    my $legacy = _read_json_file($legacy_manifest_file);
+    if (($legacy->{format} // 0) == 1 && $legacy->{validated} && $legacy->{snapshot_dir}) {
+        my ($safe, $marker) = release_dir_is_managed(
+            $option{prefix}, $legacy->{snapshot_dir},
+        );
+        if ($safe && $marker && $marker->{legacy}) {
+            return {
+                version     => $marker->{version},
+                release_dir => $safe,
+                source      => 'legacy-snapshot',
+            };
+        }
+    }
+    return {};
+}
+
+sub _replace_ctl_link {
+    my ($release_dir) = @_;
+    make_path(dirname($option{ctl_bin}), { mode => 0755 })
+        unless -d dirname($option{ctl_bin});
+    my $target = "$release_dir/bin/postfilterctl";
+    die "Missing postfilterctl in $release_dir\n" unless -f $target;
+
+    if (-e $option{ctl_bin} || -l $option{ctl_bin}) {
+        if (-l $option{ctl_bin}) {
+            unlink $option{ctl_bin}
+                or die "Unable to replace $option{ctl_bin}: $!";
+        }
+        else {
+            my $backup = "$option{ctl_bin}.pre-postfilter-ng."
+                . _timestamp_compact();
+            rename $option{ctl_bin}, $backup
+                or die "Unable to preserve $option{ctl_bin}: $!";
+        }
+    }
+    symlink $target, $option{ctl_bin}
+        or die "Unable to create $option{ctl_bin}: $!";
+    return;
+}
+
+sub _activate_candidate {
+    die "Candidate hook does not exist: $candidate_hook\n"
+        unless -f $candidate_hook && !-l $candidate_hook;
+    my $candidate = parse_hook_wrapper($candidate_hook)
+        or die "$candidate_hook is not a generated Postfilter-NG wrapper\n";
+    my $candidate_dir = _verify_release_identity(
+        directory => $candidate->{release_dir},
+        version   => $candidate->{version},
+    );
+
+    my $state = _read_json_file($release_state_file);
+    my $latest = $state->{latest_installed} || {};
+    die "Candidate does not match the latest installed release\n"
+        unless ($latest->{version} // '') eq $candidate->{version}
+            && ($latest->{release_dir} // '') eq $candidate_dir;
+
+    if ($option{dry_run}) {
+        print "[dry-run] would validate and atomically activate $candidate_hook\n";
+        print "[dry-run] would preserve a rollback hook and then run guarded cleanup\n";
+        return;
+    }
+
+    _verify_hook_load(
+        hook             => $candidate_hook,
+        construct_engine => 1,
+        expected_dir     => $candidate_dir,
+        expected_version => $candidate->{version},
+    ) or die "Candidate hook validation failed\n";
+
+    # Build the rollback hook before touching the active hook.  A validated
+    # managed release is preferred.  When the legacy snapshot could not be
+    # validated, preserve the exact active hook instead and disable cleanup.
+    my $previous = _previous_release_for_activation();
+    my $previous_temporary = "$previous_hook.tmp.$$";
+    unlink $previous_temporary if -e $previous_temporary || -l $previous_temporary;
+    if (%{$previous}) {
+        write_hook_wrapper(
+            path        => $previous_temporary,
+            release_dir => $previous->{release_dir},
+            version     => $previous->{version},
+            perl        => $perl_path,
+        );
+        _verify_hook_load(
+            hook             => $previous_temporary,
+            construct_engine => 0,
+            expected_dir     => $previous->{release_dir},
+            expected_version => $previous->{version},
+        ) or die "Rollback wrapper validation failed\n";
+    }
+    elsif (-e $active_hook || -l $active_hook) {
+        _copy_path($active_hook, $previous_temporary);
+        _verify_hook_load(
+            hook             => $previous_temporary,
+            construct_engine => 0,
+            expected_dir     => '',
+            expected_version => '',
+        ) or die "Preserved active hook cannot be used for rollback\n";
+    }
+
+    my $old_previous = "$previous_hook.pre-activation.$$";
+    my $had_previous = (-e $previous_hook || -l $previous_hook) ? 1 : 0;
+    rename $previous_hook, $old_previous
+        or die "Unable to preserve rollback hook $previous_hook: $!"
+        if $had_previous;
+
+    if (-e $previous_temporary || -l $previous_temporary) {
+        rename $previous_temporary, $previous_hook
+            or do {
+                rename $old_previous, $previous_hook
+                    if $had_previous && (-e $old_previous || -l $old_previous);
+                die "Unable to activate rollback hook $previous_hook: $!";
+            };
+    }
+
+    my $old_active = "$active_hook.pre-activation.$$";
+    my $had_active = (-e $active_hook || -l $active_hook) ? 1 : 0;
+    rename $active_hook, $old_active
+        or do {
+            unlink $previous_hook if !$had_previous && (-e $previous_hook || -l $previous_hook);
+            rename $old_previous, $previous_hook
+                if $had_previous && (-e $old_previous || -l $old_previous);
+            die "Unable to preserve active hook $active_hook: $!";
+        }
+        if $had_active;
+
+    my $activated = eval {
+        rename $candidate_hook, $active_hook
+            or die "Unable to activate $candidate_hook: $!";
+        _verify_hook_load(
+            hook             => $active_hook,
+            construct_engine => 1,
+            expected_dir     => $candidate_dir,
+            expected_version => $candidate->{version},
+        ) or die "Activated hook validation failed\n";
+        1;
+    };
+    if (!$activated) {
+        my $error = $@ || 'unknown activation error';
+        rename $active_hook, $candidate_hook
+            if (-e $active_hook || -l $active_hook)
+                && !-e $candidate_hook && !-l $candidate_hook;
+        rename $old_active, $active_hook
+            if $had_active && (-e $old_active || -l $old_active)
+                && !-e $active_hook && !-l $active_hook;
+        unlink $previous_hook if -e $previous_hook || -l $previous_hook;
+        rename $old_previous, $previous_hook
+            if $had_previous && (-e $old_previous || -l $old_previous);
+        die $error;
+    }
+
+    unlink $old_active if -f $old_active || -l $old_active;
+
+    # The hook is now live and has already been loaded successfully.  Metadata
+    # failures must never replace it with a broken path; they only postpone
+    # cleanup and leave the validated rollback hook in place.
+    my $metadata_ok = eval {
+        _atomic_symlink($candidate_dir, "$option{prefix}/current");
+        if (%{$previous}) {
+            _atomic_symlink($previous->{release_dir}, "$option{prefix}/previous");
+        }
+        elsif (-e "$option{prefix}/previous" || -l "$option{prefix}/previous") {
+            unlink "$option{prefix}/previous"
+                or die "Unable to remove stale previous release link: $!";
+        }
+        _replace_ctl_link($candidate_dir);
+
+        $state->{format} = 1;
+        $state->{updated_at} = scalar(gmtime()) . ' UTC';
+        $state->{active} = {
+            version     => $candidate->{version},
+            release_dir => $candidate_dir,
+            hook        => $active_hook,
+        };
+        if (%{$previous}) {
+            $state->{previous} = $previous;
+        }
+        else {
+            delete $state->{previous};
+        }
+        delete $state->{candidate};
+        _write_json_file($release_state_file, $state);
+        1;
+    };
+
+    unlink $old_previous if -f $old_previous || -l $old_previous;
+
+    print "Candidate activated: $candidate->{version}\n";
+    print "Existing nnrpd processes may continue using the version already loaded in memory.\n";
+
+    if (!$metadata_ok) {
+        my $error = $@ || 'unknown metadata update error';
+        warn "The active and rollback hooks are valid, but release metadata could not be updated: $error";
+        warn "No cleanup was performed. Re-run --cleanup after correcting the reported problem.\n";
+        return;
+    }
+
+    my $cleanup_ok = eval {
+        _cleanup_installation(internal => 1);
+        1;
+    };
+    if (!$cleanup_ok) {
+        my $error = $@ || 'unknown cleanup error';
+        warn "Activation succeeded, but cleanup was skipped: $error";
+        warn "The active and rollback hooks were left intact.\n";
+    }
+    return;
+}
+
+sub _rollback_active_hook {
+    die "Rollback hook does not exist: $previous_hook\n"
+        unless -e $previous_hook || -l $previous_hook;
+
+    if ($option{dry_run}) {
+        print "[dry-run] would swap $active_hook and $previous_hook atomically\n";
+        return;
+    }
+
+    my $rollback_metadata = parse_hook_wrapper($previous_hook);
+    if ($rollback_metadata) {
+        $rollback_metadata->{release_dir} = _verify_release_identity(
+            directory => $rollback_metadata->{release_dir},
+            version   => $rollback_metadata->{version},
+        );
+    }
+    _verify_hook_load(
+        hook             => $previous_hook,
+        construct_engine => 0,
+        expected_dir     => $rollback_metadata ? $rollback_metadata->{release_dir} : '',
+        expected_version => $rollback_metadata ? $rollback_metadata->{version} : '',
+    ) or die "Rollback hook validation failed\n";
+
+    my $swap = "$active_hook.rollback-swap.$$";
+    rename $active_hook, $swap
+        or die "Unable to preserve $active_hook: $!";
+    my $success = eval {
+        rename $previous_hook, $active_hook
+            or die "Unable to activate rollback hook: $!";
+        _verify_hook_load(
+            hook             => $active_hook,
+            construct_engine => 1,
+            expected_dir     => $rollback_metadata ? $rollback_metadata->{release_dir} : '',
+            expected_version => $rollback_metadata ? $rollback_metadata->{version} : '',
+        ) or die "Rolled-back hook validation failed\n";
+        rename $swap, $previous_hook
+            or die "Unable to retain replaced hook for roll-forward: $!";
+        1;
+    };
+    if (!$success) {
+        my $error = $@ || 'unknown rollback error';
+        rename $active_hook, $previous_hook
+            if -e $active_hook && !-e $previous_hook;
+        rename $swap, $active_hook
+            if -e $swap && !-e $active_hook;
+        die $error;
+    }
+
+    my $active = parse_hook_wrapper($active_hook);
+    if ($active) {
+        _atomic_symlink($active->{release_dir}, "$option{prefix}/current");
+        _replace_ctl_link($active->{release_dir});
+    }
+    my $next = parse_hook_wrapper($previous_hook);
+    _atomic_symlink($next->{release_dir}, "$option{prefix}/previous") if $next;
+
+    my $state = _read_json_file($release_state_file);
+    $state->{updated_at} = scalar(gmtime()) . ' UTC';
+    $state->{active} = $active if $active;
+    $state->{previous} = $next if $next;
+    _write_json_file($release_state_file, $state);
+    print "Rollback completed. No cleanup was performed.\n";
+    return;
+}
+
+sub _remove_legacy_flat_installation {
+    my $manifest = _read_json_file($legacy_manifest_file);
+    return 0 unless ($manifest->{format} // 0) == 1;
+    return 0 unless $manifest->{validated};
+    return 0 unless ref($manifest->{flat_entries}) eq 'ARRAY';
+    my ($safe, $marker) = release_dir_is_managed(
+        $option{prefix}, $manifest->{snapshot_dir} // '',
+    );
+    return 0 unless $safe && $marker && $marker->{legacy};
+
+    my $removed = 0;
+    for my $name (@{ $manifest->{flat_entries} }) {
+        next if _reserved_prefix_entry($name);
+        next if $name =~ m{/} || $name eq '.' || $name eq '..';
+        my $path = "$option{prefix}/$name";
+        next unless -e $path || -l $path;
+        if (-d $path && !-l $path) {
+            remove_tree($path);
+        }
+        else {
+            unlink $path or die "Unable to remove legacy path $path: $!";
+        }
+        print "Removed legacy path $path\n";
+        $removed++;
+    }
+    return $removed;
+}
+
+sub _managed_release_directories {
+    return [] unless -d $releases_root;
+    opendir my $handle, $releases_root
+        or die "Unable to inspect $releases_root: $!";
+    my @release;
+    for my $name (sort readdir $handle) {
+        next if $name eq '.' || $name eq '..';
+        next if $name =~ /^\./;
+        my $directory = "$releases_root/$name";
+        next unless -d $directory && !-l $directory;
+        my ($safe, $marker) = release_dir_is_managed($option{prefix}, $directory);
+        push @release, { directory => $safe, marker => $marker }
+            if $safe && $marker;
+    }
+    closedir $handle;
+    return \@release;
+}
+
+sub _cleanup_installer_artifacts {
+    my $removed = 0;
+
+    for my $path (
+        glob("$option{prefix}.failed.*"),
+        glob("$option{prefix}.backup.*"),
+        glob("$option{prefix}.stage.*"),
+        glob("$option{prefix}.legacy-stage.*"),
+        glob("$option{prefix}.migration.*"),
+        glob("$releases_root/.failed-*"),
+        glob("$releases_root/.replaced-*"),
+        glob("$releases_root/.stage-*"),
+    ) {
+        next unless -d $path && !-l $path;
+        remove_tree($path);
+        print "Removed installer artifact $path\n";
+        $removed++;
+    }
+
+    for my $path (
+        glob("$candidate_hook.pre-*"),
+        glob("$previous_hook.pre-*"),
+        glob("$active_hook.pre-activation.*"),
+    ) {
+        next unless -f $path || -l $path;
+        unlink $path or die "Unable to remove installer hook artifact $path: $!";
+        print "Removed installer hook artifact $path\n";
+        $removed++;
+    }
+    return $removed;
+}
+
+sub _cleanup_installation {
+    my (%argument) = @_;
+    my $active = parse_hook_wrapper($active_hook)
+        or die "Cleanup refused: active hook is not a generated Postfilter-NG wrapper.\n";
+    my $active_dir = _verify_release_identity(
+        directory => $active->{release_dir},
+        version   => $active->{version},
+    );
+    my $state = _read_json_file($release_state_file);
+    my $latest = $state->{latest_installed} || {};
+    die "Cleanup refused: active hook does not use the latest installed release.\n"
+        unless ($latest->{version} // '') eq $active->{version}
+            && ($latest->{release_dir} // '') eq $active_dir;
+
+    _verify_hook_load(
+        hook             => $active_hook,
+        construct_engine => 1,
+        expected_dir     => $active_dir,
+        expected_version => $active->{version},
+    ) or die "Cleanup refused: active hook validation failed.\n";
+
+    my $previous = parse_hook_wrapper($previous_hook);
+    my $previous_dir = '';
+    if ($previous) {
+        $previous_dir = _verify_release_identity(
+            directory => $previous->{release_dir},
+            version   => $previous->{version},
+        );
+        _verify_hook_load(
+            hook             => $previous_hook,
+            construct_engine => 0,
+            expected_dir     => $previous_dir,
+            expected_version => $previous->{version},
+        ) or die "Cleanup refused: rollback hook validation failed.\n";
+    }
+
+    if (!$previous_dir) {
+        print "Cleanup skipped: no validated rollback wrapper is available.\n";
+        print "No files were removed.\n";
+        return;
+    }
+
+    if ($option{dry_run}) {
+        print "[dry-run] active latest release verified: $active->{version}\n";
+        print "[dry-run] would remove validated legacy flat files and obsolete managed releases\n";
+        return;
+    }
+
+    my $legacy_removed = _remove_legacy_flat_installation();
+
+    my %keep = ($active_dir => 1);
+    $keep{$previous_dir} = 1 if $previous_dir;
+    my $all = _managed_release_directories();
+    my @newest = sort {
+        ($b->{marker}{installed_epoch} // 0) <=> ($a->{marker}{installed_epoch} // 0)
+            || $b->{directory} cmp $a->{directory}
+    } @{$all};
+    for my $item (@newest) {
+        last if scalar(keys %keep) >= $option{keep_releases};
+        $keep{$item->{directory}} = 1;
+    }
+
+    my $release_removed = 0;
+    for my $item (@{$all}) {
+        next if $keep{$item->{directory}};
+        remove_tree($item->{directory});
+        print "Removed obsolete release $item->{directory}\n";
+        $release_removed++;
+    }
+
+    my $artifact_removed = _cleanup_installer_artifacts();
+
+    print "Cleanup completed:\n";
+    print "  active release: $active->{version}\n";
+    print "  previous release: " . ($previous ? $previous->{version} : 'none') . "\n";
+    print "  legacy paths removed: $legacy_removed\n";
+    print "  obsolete releases removed: $release_removed\n";
+    print "  installer artifacts removed: $artifact_removed\n";
+    return;
+}
+
 
 =head2 Path discovery
 
@@ -516,7 +1482,7 @@ sub _rewrite_installed_shebangs {
         $text =~ s{\A\#![^\r\n]*perl[^\r\n]*(?:\r?\n)}{#!$interpreter\n}
             or die "No Perl shebang found in $path\n";
 
-        my $mode = (stat($path))[2] & 07777;
+        my $mode = 0755;
         open my $output, '>:raw', $path
             or die "Unable to write $path while rewriting shebang: $!";
         print {$output} $text
@@ -548,7 +1514,7 @@ package Postfilter::InstallPaths;
 use strict;
 use warnings;
 
-our \$VERSION = '2026.07.5-rc5';
+our \$VERSION = '2026.07.5-rc6';
 
 use constant CONFIG_FILE => $config_file;
 use constant STATE_DIR   => $state_directory;
@@ -576,8 +1542,9 @@ MODULE
     rename $temporary, $path
         or die "Unable to activate generated path module $path: $!";
 
+    my $library_root = dirname(dirname($path));
     _system_with_clean_perl_environment(
-        $perl_path, "-I$option{prefix}/lib", '-c', $path,
+        $perl_path, "-I$library_root", '-c', $path,
     ) == 0
         or die "Generated runtime path module does not compile: $path\n";
 
@@ -965,147 +1932,6 @@ sub _create_random_key {
 
 =cut
 
-# Function: _install_command_links
-# Purpose: Creates the review-only INN hook candidate and the postfilterctl command link.
-# Parameters: No positional parameters, or arguments are read directly by the command wrapper.
-# Operational notes: The active filter_nnrpd.pl hook is never modified.  The newsmaster activates
-#                    Postfilter-NG only after configuration and audit verification.
-sub _install_command_links {
-    make_path($option{filter_dir}, { mode => 0755 });
-
-    my $candidate_link = "$option{filter_dir}/filter_nnrpd.pl.ng";
-    if (-e $candidate_link || -l $candidate_link) {
-        if (-l $candidate_link) {
-            unlink $candidate_link
-                or die "Unable to replace $candidate_link: $!";
-        }
-        elsif ($option{force} || $option{upgrade}) {
-            rename $candidate_link, "$candidate_link.pre-postfilter-ng.$$"
-                or die "Unable to back up $candidate_link: $!";
-        }
-        else {
-            die "$candidate_link exists and is not a symlink; use --force\n";
-        }
-    }
-
-    symlink "$option{prefix}/postfilter", $candidate_link
-        or die "Unable to create symlink $candidate_link: $!";
-
-    make_path(dirname($option{ctl_bin}), { mode => 0755 })
-        unless -d dirname($option{ctl_bin});
-    if (-e $option{ctl_bin} || -l $option{ctl_bin}) {
-        unlink $option{ctl_bin} if -l $option{ctl_bin};
-        if (-e $option{ctl_bin}) {
-            rename $option{ctl_bin}, "$option{ctl_bin}.pre-postfilter-ng.$$"
-                or die "Unable to back up $option{ctl_bin}: $!";
-        }
-    }
-
-    symlink "$option{prefix}/bin/postfilterctl", $option{ctl_bin}
-        or die "Unable to create $option{ctl_bin}: $!";
-
-    chmod 0755,
-        "$option{prefix}/postfilter",
-        "$option{prefix}/bin/postfilterctl";
-
-    return;
-}
-
-# Function: _verify_install_paths_module
-# Purpose: Proves that a clean new Perl process loads the generated module from the active prefix.
-# Parameters: None.
-# Operational notes: Exact module, configuration and state paths are compared before hook testing.
-sub _verify_install_paths_module {
-    my $expected_module = "$option{prefix}/lib/Postfilter/InstallPaths.pm";
-    my $expected_config = "$option{config_dir}/postfilter.toml";
-    my $expected_state = $option{state_dir};
-
-    my $program = <<'PERL';
-use strict;
-use warnings;
-use Cwd qw(abs_path);
-
-my ($expected_module, $expected_config, $expected_state) = @ARGV;
-my $loaded_module = $INC{'Postfilter/InstallPaths.pm'} // '';
-my $loaded_absolute = abs_path($loaded_module) // $loaded_module;
-my $expected_absolute = abs_path($expected_module) // $expected_module;
-my $config = Postfilter::InstallPaths::config_file();
-my $state = Postfilter::InstallPaths::state_dir();
-
-print "InstallPaths module=$loaded_absolute\n";
-print "InstallPaths config=$config\n";
-print "InstallPaths state=$state\n";
-
-die "Unexpected InstallPaths module: $loaded_absolute\n"
-    unless $loaded_absolute eq $expected_absolute;
-die "Unexpected generated configuration path: $config\n"
-    unless $config eq $expected_config;
-die "Unexpected generated state path: $state\n"
-    unless $state eq $expected_state;
-PERL
-
-    _run_as_runtime_user(
-        $perl_path,
-        "-I$option{prefix}/lib",
-        '-MPostfilter::InstallPaths',
-        '-e',
-        $program,
-        $expected_module,
-        $expected_config,
-        $expected_state,
-    ) or die "Generated InstallPaths.pm verification failed\n";
-
-    return;
-}
-
-# Function: _verify_embedded_hook_candidate
-# Purpose: Loads the candidate as nnrpd does and constructs the engine without path overrides.
-# Parameters: None.
-# Operational notes: This catches embedded-Perl and installer path propagation failures before
-#                    the newsmaster can activate the hook.
-sub _verify_embedded_hook_candidate {
-    my $candidate = "$option{filter_dir}/filter_nnrpd.pl.ng";
-    my $program = <<'PERL';
-my $file = shift;
-local $0 = '/usr/local/news/bin/nnrpd';
-my $loaded = do $file;
-die "Perl load error: $@" if $@;
-die "Operating-system error: $!" unless defined $loaded;
-die "Filter returned false\n" unless $loaded;
-die "Postfilter-NG engine entry point is unavailable\n"
-    unless defined &main::_engine;
-my $engine = main::_engine();
-die "Postfilter-NG engine construction failed\n" unless $engine;
-$engine->shutdown;
-print "Postfilter-NG embedded hook load OK\n";
-PERL
-
-    _run_as_runtime_user($perl_path, '-e', $program, $candidate)
-        or die "Embedded nnrpd hook verification failed for $candidate\n";
-    return;
-}
-
-# Function: _print_activation_notice
-# Purpose: Shows the exact candidate and active hook paths after a successful installation.
-# Parameters: No positional parameters.
-# Operational notes: The notice deliberately leaves activation to the newsmaster and does not
-#                    rename, replace or delete an existing INN filter hook.
-sub _print_activation_notice {
-    my $candidate_link = "$option{filter_dir}/filter_nnrpd.pl.ng";
-    my $active_link    = "$option{filter_dir}/filter_nnrpd.pl";
-
-    print "\nPostfilter-NG has NOT been activated automatically.\n";
-    print "The installer does not modify the active filter_nnrpd.pl hook.\n";
-    print "Candidate hook: $candidate_link -> $option{prefix}/postfilter\n";
-    print "Active hook:    $active_link\n";
-    print "After completing configuration, article tests and audit review, back up\n";
-    print "the active hook if it exists and rename the candidate to filter_nnrpd.pl.\n";
-    print "See docs/INSTALL.md for the activation and rollback commands.\n";
-    print "Configuration remains root:$option{group} and read-only to $option{user}.\n";
-    print "Runtime state and saved articles are writable by $option{user}:$option{group}.\n";
-    return;
-}
-
 # Function: _set_configuration_ownership
 # Purpose: Recursively applies root:news-style ownership and non-writable configuration
 #          permissions.
@@ -1272,39 +2098,13 @@ sub _run_as_runtime_user {
 #                    rollback where applicable.
 sub _execute {
     my ($code) = @_;
-
     if ($option{dry_run}) {
-        print "[dry-run] action skipped\n";
+        print "[dry-run] action skipped
+";
         return;
     }
-
-    my $success = eval {
-        $code->();
-        1;
-    };
-    return if $success;
-
-    my $error = $@ || 'unknown installer error';
-
-    my $preserved_failed = '';
-    if ($code_activated && -e $option{prefix}) {
-        if (rename $option{prefix}, $failed_directory) {
-            $preserved_failed = $failed_directory;
-        }
-        else {
-            remove_tree($option{prefix});
-        }
-    }
-    if (-d $backup_directory && !-e $option{prefix}) {
-        rename $backup_directory, $option{prefix}
-            or die "Unable to restore $backup_directory to $option{prefix}: $!\n";
-    }
-
-    if ($preserved_failed) {
-        die $error
-            . "Failed installation tree preserved at $preserved_failed\n";
-    }
-    die $error;
+    $code->();
+    return;
 }
 
 # Function: _uninstall
@@ -1313,21 +2113,45 @@ sub _execute {
 # Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
 #                    rollback where applicable.
 sub _uninstall {
-    my $candidate_link = "$option{filter_dir}/filter_nnrpd.pl.ng";
+    my $candidate = "$option{filter_dir}/filter_nnrpd.pl.ng";
+    my $active = "$option{filter_dir}/filter_nnrpd.pl";
+
+    my $active_metadata = parse_hook_wrapper($active);
+    if ($active_metadata) {
+        my $managed = safe_release_directory(
+            $option{prefix}, $active_metadata->{release_dir},
+        );
+        die "Uninstall refused: active filter_nnrpd.pl still uses Postfilter-NG under $option{prefix}.
+"
+            . "Roll back to another hook or remove it explicitly before uninstalling code.
+"
+            if $managed;
+    }
+    elsif (-l $active) {
+        my $target = abs_path($active) // '';
+        my $prefix = abs_path($option{prefix}) // File::Spec->rel2abs($option{prefix});
+        die "Uninstall refused: active hook resolves inside $option{prefix}.
+"
+            if $target eq $prefix || index($target, "$prefix/") == 0;
+    }
 
     _execute(sub {
-        unlink $candidate_link if -l $candidate_link;
-        unlink $option{ctl_bin} if -l $option{ctl_bin};
+        unlink $candidate if -e $candidate || -l $candidate;
+        if (-l $option{ctl_bin}) {
+            my $target = readlink($option{ctl_bin}) // '';
+            unlink $option{ctl_bin}
+                if index($target, $option{prefix}) == 0;
+        }
         remove_tree($option{prefix}) if -d $option{prefix};
-
         if (-d $option{config_dir} && !$option{keep_config}) {
             remove_tree($option{config_dir});
         }
     });
 
-    print "Uninstalled code and installer-managed symlinks.\n";
-    print "The active filter_nnrpd.pl hook was not modified.\n";
-    print "SQLite state and saved articles were intentionally preserved.\n";
+    print "Uninstalled Postfilter-NG code and installer-managed candidate files.
+";
+    print "SQLite state and saved articles were intentionally preserved.
+";
     return;
 }
 
@@ -1338,6 +2162,12 @@ sub _uninstall {
 #                    rollback where applicable.
 sub _print_plan {
     print "Postfilter-NG installation plan\n";
+    printf "  %-13s %s\n", 'release', $release_version;
+    my $operation = $option{activate_candidate} ? 'ACTIVATE'
+        : $option{rollback} ? 'ROLLBACK'
+        : $option{cleanup} ? 'CLEANUP'
+        : 'INSTALL-CANDIDATE';
+    printf "  %-13s %s\n", 'operation', $operation;
     for my $key (qw(
         prefix filter_dir config_dir state_dir saved_dir html_dir active_file
         sendmail ctl_bin user group
@@ -1355,6 +2185,7 @@ sub _print_plan {
         'runtime_config',
         "$option{config_dir}/postfilter.toml";
     printf "  %-13s %s\n", 'runtime_state', $option{state_dir};
+    printf "  %-13s %s\n", 'keep_releases', $option{keep_releases};
     print '  mode          '
         . ($option{dry_run} ? 'DRY-RUN' : 'APPLY')
         . "\n";
@@ -1384,7 +2215,14 @@ Paths:
 Identity and operation:
   --user USER --group GROUP
   --dry-run --upgrade --force --force-config
+  --activate-candidate --rollback --cleanup
+  --keep-releases N          retain active plus rollback releases (minimum 2)
   --uninstall --keep-config --skip-dependency-check --help
+
+The repository may be uploaded through GitHub Web without executable modes.
+Invoke the source installer explicitly with:
+
+  perl installer/install-postfilter [options]
 USAGE
 
     exit $exit_code;

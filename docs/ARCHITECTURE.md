@@ -1,117 +1,92 @@
 # Architecture
 
-## Runtime model
+## INN process model
 
-INN loads the active `filter_nnrpd.pl` hook once for each nnrpd process.  The
-installer creates `filter_nnrpd.pl.ng`, a symlink to `postfilter`, and leaves the
-final rename to the newsmaster.  A client connection may issue multiple POST
-commands, so immutable
-configuration, the SQLite handle, active-file cache and bounded DNS cache may
-survive between articles.  Every POST receives a new `Postfilter::Context`;
-scores, verdicts, notes and rule hits never leak to the next article.
+INN loads `filter_nnrpd.pl` inside each nnrpd process. The hook defines
+`filter_post()` and lazily constructs one reusable `Postfilter::NG` engine for
+the lifetime of that reader process. Existing sessions retain the release already
+loaded in memory; newly created nnrpd processes load the current active wrapper.
 
-## Installed runtime layout
+`ctlinnd reload filter.perl` applies to the innd transit filter and does not
+reload this nnrpd posting hook.
 
-The source tree is location-independent. The installer records the selected
-configuration file and mutable state directory in
-`Postfilter::InstallPaths` inside the installed prefix. The hook resolves its
-module root from `__FILE__`, including the active `filter_nnrpd.pl` symlink, and
-does not depend on nnrpd's `$0`. Installed command shebangs point to the exact
-Perl interpreter used during setup.
+## Immutable release model
 
-Configuration and keys are read-only to the INN runtime account. SQLite,
-configuration generations and saved articles are writable by that account.
+Rc6 stores code below:
 
-## Pipeline
+```text
+<prefix>/releases/<version>/
+```
 
-1. inspect configuration generation mtimes and reload only a complete valid set;
-2. build the article context and classify every Newsgroups value as text or binary;
-3. reject a text/binary mixed crosspost before audit or trusted-profile relaxation;
-4. classify public/authenticated identity and apply the effective article-type profile;
-5. apply one highest-priority trusted profile;
-6. run structural, content, UserDB and reputation checks not skipped by that profile;
-7. evaluate type-scoped ban rules and badword scores;
-8. query SQLite-backed, optionally type-separated multipost and rate history;
-9. run the optional local custom module;
-10. perform explicitly configured header transformations;
-11. resolve technical verdict, audit policy and per-type diagnostic-save policy;
-12. save a diagnostic article under the text or binary tree when requested;
-13. write one typed event and its rule hits in one short SQLite transaction;
-14. emit one level-1 result line plus any configured diagnostic detail;
-15. return empty success text, documented `DROP`, or a rejection reason to INN.
+The active, candidate and rollback INN hooks are small regular wrapper files:
 
+```text
+filter_nnrpd.pl
+filter_nnrpd.pl.ng
+filter_nnrpd.pl.previous
+```
 
-## Text and binary worlds
+A wrapper adds one immutable release's `lib` directory to `@INC`, loads that
+release's `postfilter` entry point through Perl `do`, and verifies that
+`filter_post()` was defined. The wrapper does not need to be executable because
+INN loads it as Perl source.
 
-The classifier uses group-name globs only.  It does not inspect yEnc, uuencode or
-MIME to decide which limits apply; otherwise a payload could promote itself into
-a more permissive policy.  `text-only` always selects the text world.  `mixed`
-selects binary only when every posted group matches the configured binary list.
+Candidate installation never changes the active wrapper. Activation is an
+explicit atomic rename followed by an embedded-load check. Failure restores the
+old active hook before returning an error.
 
-The context keeps an immutable base configuration plus the effective text or
-binary profile.  Shared code obtains limits through `Context::limit` and content
-permissions through `Context::content_setting`.  Rules and providers use
-`Context::rule_applies_to_article_type`; absence of a scope means shared policy.
+## Pre-rc6 migration
 
-Mixed crossposts are rejected before trusted profiles, including full bypass,
-and remain rejected in audit.  This is intentional isolation between the two
-worlds rather than an ordinary spam-policy verdict.
+Rc1 through rc5 used a flat mutable prefix. Rc6 copies the exact existing flat
+tree to a managed `legacy-*` release snapshot while the original files remain in
+place and continue serving the active hook. This preserves local modifications
+and avoids a broken interval during migration.
 
-## Article stages
+The legacy flat tree is removed only after:
 
-Tests and CLI distinguish three representations:
+- rc6 is the verified active and latest installed release;
+- the exact `Postfilter::NG` and `InstallPaths` modules loaded come from rc6;
+- the runtime version matches the wrapper metadata;
+- a validated rollback wrapper loads the legacy snapshot or previous managed
+  release.
 
-- **raw client**: what a newsreader submits; Path may be absent;
-- **INN hook stage**: what nnrpd supplies after its own header preparation;
-- **offline CLI**: a file that may omit server-generated fields and should still
-  produce a useful explanation rather than a misleading blanket failure.
+## Runtime paths
 
-## Configuration resilience
+Each release contains a generated `lib/Postfilter/InstallPaths.pm`. The installer
+writes the detected configuration file and state directory into that module
+before compiling and activating the release directory. Environment variables
+remain explicit one-shot overrides only.
 
-The source TOML set is parsed by TOML::Tiny.  Invalid individual regex entries
-are disabled when isolation is safe; a malformed TOML generation is never
-activated.  A successful load assigns a content-derived generation identifier. Identical effective configurations reuse one canonical JSON file across nnrpd processes; `retention.config_generations` bounds historical files. `last-known-good.json` is replaced only when the effective generation changes.  Bad reloads retain the previous in-memory
-configuration.  New processes can start from last-known-good, then from a small
-embedded fail-open configuration as a final availability measure.
+## Engine pipeline
 
-## Persistence and concurrency
+For each submitted article the engine:
 
-SQLite uses WAL, foreign keys, a busy timeout and short transactions. The
-installer validates configuration and initializes SQLite after dropping to the
-configured INN uid/gid; state and generation files therefore have the same
-ownership used at runtime. DNS,
-article scanning, report generation and file saving never occur inside a
-transaction.  One writer at a time is normal SQLite behaviour; concurrent nnrpd
-processes wait according to `busy_timeout_ms` rather than overwriting a flat
-file.
+1. loads the current validated configuration generation;
+2. builds a bounded article context and stable identity representation;
+3. resolves trusted and access profiles;
+4. classifies text or binary content;
+5. applies structural, content, reputation, rate, banlist and custom checks;
+6. applies permitted header transformations;
+7. records the final result and rule hits in SQLite;
+8. returns an empty string for acceptance or a client-visible rejection string.
 
-Article events and rule hits are permanent by default.  Provider-health rows are
-operational telemetry and may be pruned.  Explicit purge operations record who,
-when, what cutoff and how many rows were removed.
+The whole pipeline is constrained by the configured processing budget. DNS work
+has separate per-query and aggregate deadlines bounded by the remaining article
+budget.
 
-## Cryptographic separation
+## Ownership boundaries
 
-Setup generates independent random key files for:
+Configuration and keys are root-owned and readable by the INN group. SQLite,
+last-known-good generations and saved rejected articles are owned by the runtime
+INN account. Code releases and hook wrappers are root-controlled.
 
-- TOR header reversible encryption;
-- HMAC pseudonyms in article headers;
-- HTML report privacy;
-- database privacy and deterministic hidden lookup values.
+## Release state and cleanup
 
-Key reuse across purposes is forbidden.  Runtime code never substitutes a known
-fallback key.  Reversible values use random-IV encryption plus HMAC
-authentication; stable pseudonyms use HMAC-SHA-256.
+`release-state.json` records the latest installed, active, candidate and previous
+release. `legacy-flat-manifest.json` records the exact top-level files captured
+from the old layout and whether the snapshot was a validated rollback target.
 
-
-## Text attachment stage
-
-`Postfilter::Checks::Attachments` is a separate pipeline stage because MIME
-attachments and unlabelled Base64 are different from yEnc/uuencode markers.  It
-uses the already selected article-type profile: text enables strict inspection,
-while binary disables it by default.  The stage is bounded by MIME depth, MIME part count, body scan bytes and the check-and-transformation deadline. Context creation and preliminary logging are timed separately and do not consume that budget.
-
-All reputation providers share per-process cache and health state. DNS queries
-use the Net::DNS background interface. The active wait is bounded by the
-per-query limit, the shared DNS-total limit and the remaining article deadline;
-resolver retries are explicitly limited to one. Provider failures follow
-explicit policy and are not interpreted as positive listings.
+Cleanup accepts only release directories below the managed `releases` root with
+a valid `.postfilter-ng-release.json` marker. It retains at least active plus one
+rollback release and never removes anything when the active hook is older,
+unrecognised, external or unable to load.

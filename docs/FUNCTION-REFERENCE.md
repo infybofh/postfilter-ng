@@ -54,44 +54,63 @@ failure policy, concurrency, security implications and side effects.
 
 | Function | Purpose | Parameters |
 |---|---|---|
-| `_resolve_inn_paths` | Uses innconfval to discover filter, configuration, database, spool, binary, and active paths. | `No positional parameters, or arguments are read directly by the command wrapper.` |
-| `_apply_fallback_paths` | Fills only unresolved installer paths with portable defaults. | `No positional parameters, or arguments are read directly by the command wrapper.` |
-| `_running_perl_path` | Resolves the interpreter executing the installer to an absolute executable path. | `No positional parameters.` |
-| `_find_in_path` | Resolves one command name through PATH without invoking a shell. | `$name` |
-| `_find_executable` | Returns the first executable candidate path. | `$binary, $key` |
-| `_inn_value` | Runs innconfval without a shell and returns one trimmed setting. | `$binary, $key` |
-| `_check_dependencies` | Verifies every required runtime Perl module before modifying the installation. | `No positional parameters, or arguments are read directly by the command wrapper.` |
-| `_copy_tree` | Recursively copies release files while preserving executable modes and symlinks. | `$source, $destination` |
-| `_compile_tree` | Runs perl -c on every installed module and executable in the staging tree. | `$directory` |
-| `_rewrite_installed_shebangs` | Replaces portable source-tree shebangs with the absolute active Perl interpreter. | `$directory, $interpreter` |
-| `_write_install_paths_module` | Persists installer-detected runtime defaults inside the activated code prefix. | `$path` |
-| `_perl_single_quoted` | Quotes one installer path as a safe single-quoted Perl literal. | `$value` |
-| `_create_runtime_directories` | Creates documented configuration, key, state, saved-article, userdb, and HTML directories. | `No positional parameters, or arguments are read directly by the command wrapper.` |
-| `_install_configuration_files` | Installs main/fragments/assets while preserving operator files on upgrade. | `No positional parameters, or arguments are read directly by the command wrapper.` |
-| `_install_config_file` | Copies one configuration asset only when policy permits replacement. | `$source, $destination` |
-| `_replace_default_paths` | Rewrites shipped path defaults to detected or explicitly supplied installation paths. | `$path` |
-| `_legacy_path_replacements` | Returns exact historical shipped defaults and their detected site-local replacements. | `None.` |
-| `_migrate_existing_configuration_paths` | Migrates only historical shipped path defaults in preserved operator TOML files. | `None.` |
-| `_install_distribution_configuration_snapshots` | Installs current path-adjusted TOML examples beside preserved operator files as `.dist`. | `None.` |
-| `_configured_key_paths` | Loads main TOML plus fragments and resolves all four effective purpose-specific key paths. | `$configuration_path` |
-| `_configured_saved_subdirectories` | Resolves and validates the text and binary diagnostic directory names. | `$configuration_path` |
-| `_load_installer_configuration` | Loads main TOML plus sorted fragments for installer path/key decisions. | `$configuration_path` |
-| `_merge_configuration_hash` | Recursively merges installer-only configuration tables used to resolve key paths. | `$destination, $source` |
-| `_create_random_key` | Creates and verifies one non-overwritten 64-byte key from /dev/urandom. | `$path, $purpose` |
-| `_install_command_links` | Creates the review-only INN hook candidate and the postfilterctl command link. | `No positional parameters, or arguments are read directly by the command wrapper.` |
-| `_verify_install_paths_module` | Proves that a clean new Perl process loads the generated module from the active prefix. | `None.` |
-| `_verify_embedded_hook_candidate` | Loads the candidate as nnrpd does and constructs the engine without path overrides. | `No positional parameters.` |
-| `_print_activation_notice` | Shows the exact candidate and active hook paths after a successful installation. | `No positional parameters.` |
-| `_set_configuration_ownership` | Recursively applies root:news-style ownership and non-writable configuration permissions. | `$directory, $group` |
-| `_chown_tree` | Recursively assigns runtime ownership and documented directory/file modes. | `$directory, $user, $group, $directory_mode, $file_mode` |
-| `_clear_perl_environment` | Removes inherited Perl library and build variables before installer verification. | `None.` |
-| `_system_with_clean_perl_environment` | Executes one command after locally removing inherited Perl path and option variables. | `@command` |
-| `_timestamp_compact` | Returns one UTC timestamp safe for backup and failed-install directory names. | `None.` |
-| `_run_as_runtime_user` | Executes one installer validation command with the configured INN uid and gid. | `@command` |
-| `_execute` | Runs one installer phase and restores the previous code prefix if the phase fails. | `$code` |
-| `_uninstall` | Removes code and symlinks while preserving SQLite state and saved articles by default. | `No positional parameters, or arguments are read directly by the command wrapper.` |
-| `_print_plan` | Displays all resolved installation paths and whether actions will be applied. | `No positional parameters, or arguments are read directly by the command wrapper.` |
-| `_usage` | Prints command syntax and exits with the supplied status. | `$exit_code` |
+| `_read_release_version` | Reads and validates the source release identifier. | `$path` |
+| `_legacy_flat_entries` | Lists exact top-level entries belonging to a recognised pre-rc6 flat installation. | none |
+| `_read_json_file` / `_write_json_file` | Reads and atomically writes installer state and manifests. | `$path`, `$value` |
+| `_copy_path` | Copies a file, directory or symlink while preserving its type and mode. | `$source, $destination` |
+| `_detect_legacy_version` | Detects an installed legacy version or assigns an `unknown-*` identifier. | none |
+| `_verify_hook_load` | Loads one hook as nnrpd does, verifies `filter_post`, exact module paths, runtime version and optionally engine construction. | named arguments |
+| `_verify_release_identity` | Confirms that a directory is managed, contained and marked with the expected release version. | named arguments |
+| `_verify_install_paths_module_for_release` | Proves that a clean Perl process loads the generated path module from one exact release. | `$directory` |
+| `_ensure_legacy_snapshot` | Copies and validates the exact pre-rc6 flat tree without moving the active files. | none |
+| `_install_runtime_configuration` | Installs or preserves configuration, migrates exact old paths, creates keys and normalises ownership. | none |
+| `_install_release_tree` | Stages, rewrites, marks, compiles and atomically installs one immutable release. | none |
+| `_install_candidate_wrapper` | Creates a regular version-pinned `filter_nnrpd.pl.ng` wrapper. | none |
+| `_validate_candidate_release` | Runs explicit and generated-path configuration, SQLite and embedded-hook checks. | none |
+| `_install_release_candidate` | Coordinates candidate installation while leaving the active hook unchanged. | none |
+| `_atomic_symlink` | Atomically updates `current` and `previous` release links. | `$target, $link` |
+| `_previous_release_for_activation` | Resolves a managed active release or validated legacy snapshot as rollback target. | none |
+| `_replace_ctl_link` | Points the installed administration command at the newly active release. | `$release_dir` |
+| `_activate_candidate` | Validates, atomically activates, verifies and rolls back on failure before guarded cleanup. | none |
+| `_rollback_active_hook` | Swaps active and previous wrappers and validates the rolled-back engine. | none |
+| `_remove_legacy_flat_installation` | Removes only top-level legacy entries recorded in the migration manifest. | none |
+| `_managed_release_directories` | Enumerates only contained release directories with valid markers. | none |
+| `_cleanup_installer_artifacts` | Removes stale installer-owned staging, failed-tree and hook backup artifacts. | none |
+| `_cleanup_installation` | Retains active plus rollback releases and removes obsolete files only after all safety gates pass. | named arguments |
+| `_resolve_inn_paths` | Uses `innconfval` to discover filter, configuration, database, spool, binary and active paths. | none |
+| `_apply_fallback_paths` | Fills unresolved paths with portable defaults. | none |
+| `_running_perl_path` | Resolves the exact Perl interpreter executing the installer. | none |
+| `_find_in_path` / `_find_executable` | Resolve commands without invoking a shell. | command candidates |
+| `_inn_value` | Reads one trimmed `innconfval` value. | `$binary, $key` |
+| `_check_dependencies` | Verifies required runtime Perl modules before installation. | none |
+| `_copy_tree` | Recursively copies release files while preserving modes and symlinks. | `$source, $destination` |
+| `_compile_tree` | Runs `perl -c` on production modules and entry points in the staged release. | `$directory` |
+| `_rewrite_installed_shebangs` | Pins installed commands to the active Perl interpreter and sets mode `0755`. | `$directory, $interpreter` |
+| `_write_install_paths_module` | Generates release-local persistent configuration and state defaults. | `$path` |
+| `_create_runtime_directories` | Creates configuration, key, state, saved-article and report directories. | none |
+| `_install_configuration_files` / `_install_config_file` | Installs assets while preserving operator files unless forced. | source and destination paths |
+| `_replace_default_paths` / `_legacy_path_replacements` | Rewrites only exact historical shipped paths to detected site-local paths. | `$path` / none |
+| `_migrate_existing_configuration_paths` | Backs up and migrates preserved TOML files. | none |
+| `_install_distribution_configuration_snapshots` | Writes current path-adjusted `.dist` references. | none |
+| `_configured_key_paths` / `_configured_saved_subdirectories` | Resolves effective key and diagnostic storage paths from merged configuration. | `$configuration_path` |
+| `_load_installer_configuration` / `_merge_configuration_hash` | Loads and merges main TOML plus active fragments. | configuration/hash arguments |
+| `_create_random_key` | Creates or validates one non-overwritten 64-byte key. | `$path, $purpose` |
+| `_set_configuration_ownership` / `_chown_tree` | Applies root-owned policy and runtime-owned mutable tree modes. | ownership arguments |
+| `_clear_perl_environment` / `_system_with_clean_perl_environment` | Prevents inherited Perl paths from shadowing release modules. | command arguments |
+| `_run_as_runtime_user` | Irreversibly drops to the configured INN account before validation. | `@command` |
+| `_uninstall` | Refuses to remove a prefix still used by the active hook and otherwise removes installer-managed code. | none |
+| `_print_plan` / `_usage` | Prints resolved operation details and command syntax. | optional exit code |
+
+## `lib/Postfilter/ReleaseManager.pm`
+
+| Function | Purpose | Parameters |
+|---|---|---|
+| `safe_release_directory` | Resolves and confines a release path below `<prefix>/releases`. | `$prefix, $directory` |
+| `write_release_marker` | Atomically writes `.postfilter-ng-release.json`. | named arguments |
+| `read_release_marker` | Validates and decodes one managed release marker. | `$directory` |
+| `release_dir_is_managed` | Combines path containment and marker validation. | `$prefix, $directory` |
+| `write_hook_wrapper` | Generates a regular, version-pinned INN Perl wrapper. | named arguments |
+| `parse_hook_wrapper` | Reads generated wrapper metadata without executing the hook. | `$path` |
 
 ## `lib/Postfilter/Article.pm`
 

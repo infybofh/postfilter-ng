@@ -115,7 +115,7 @@ like($distribution_text, qr{/usr/local/news/db/postfilter-ng}, '.dist snapshot r
 like($distribution_text, qr{/etc/news/postfilter-ng-custom/unchanged}, '.dist snapshot preserves custom-like prefixes');
 
 my $installer = _slurp('installer/install-postfilter');
-like($installer, qr/sub _verify_install_paths_module/, 'installer directly verifies generated path module');
+like($installer, qr/sub _verify_install_paths_module_for_release/, 'installer directly verifies generated path module');
 like($installer, qr/InstallPaths module=/, 'installer prints the loaded module path');
 like($installer, qr/--config.*postfilter\.toml/s, 'installer performs explicit bootstrap configuration validation');
 like($installer, qr/--state-dir/, 'installer performs explicit bootstrap state validation');

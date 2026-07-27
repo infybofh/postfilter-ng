@@ -22,7 +22,7 @@ Postfilter-NG is a Perl posting filter for the INN `nnrpd` service. It validates
 articles before acceptance, applies text and binary policies, records searchable
 audit events in SQLite, and supports staged deployment through audit mode.
 
-> **Version:** `2026.07.5-rc5`  
+> **Version:** `2026.07.5-rc6`  
 > **Status:** **Release candidate**  
 > **Runtime:** [Perl](https://www.perl.org/) 5.38 or newer and
 > [INN](https://www.eyrie.org/~eagle/software/inn/) 2.x  
@@ -112,14 +112,14 @@ From the extracted project directory:
 perl -Ilib -c postfilter
 perl -Ilib -c bin/postfilterctl
 perl -Ilib -c installer/install-postfilter
-./tests/run-tests
+sh tests/run-tests
 sha256sum -c SHA256SUMS
 ```
 
 Check the effective configuration:
 
 ```sh
-bin/postfilterctl check-config \
+perl bin/postfilterctl check-config \
   --config ./conf/postfilter.toml \
   --state-dir ./var-test
 ```
@@ -127,7 +127,7 @@ bin/postfilterctl check-config \
 Inspect an article offline:
 
 ```sh
-bin/postfilterctl explain \
+perl bin/postfilterctl explain \
   --config ./conf/postfilter.toml \
   --state-dir ./var-test \
   --hook-stage raw-client \
@@ -136,54 +136,77 @@ bin/postfilterctl explain \
 
 ## Installation
 
-The installer discovers INN paths through `innconfval` and accepts explicit
-path overrides for Debian, Ubuntu, FreeBSD, OpenBSD and other supported Unix-like
-systems. It writes the selected configuration and state paths into the installed
-Perl module tree, pins installed command shebangs to the Perl interpreter used for
-setup, and validates those defaults without temporary environment variables.
+The source repository may be populated through GitHub's web interface, which
+does not preserve executable modes. Invoke source commands explicitly:
 
 ```sh
-sudo installer/install-postfilter --dry-run
-sudo installer/install-postfilter
+perl installer/install-postfilter --dry-run
+sh tests/run-tests
 ```
 
-The installer stages the filter entry point without changing the active INN
-hook:
+The installer discovers INN paths through `innconfval` and accepts explicit
+overrides for Debian, Ubuntu, FreeBSD, OpenBSD and custom builds. Installed
+shebangs are rewritten to the exact Perl interpreter used for setup.
+
+Rc6 uses immutable versioned releases:
 
 ```text
-<pathfilter>/filter_nnrpd.pl.ng -> <prefix>/postfilter
+<prefix>/releases/<version>/
 ```
 
-After configuration tests and audit review, the newsmaster backs up any existing
-`filter_nnrpd.pl` and renames the staged link to `filter_nnrpd.pl`.  Manual
-installations create the same symlink explicitly.  Detailed activation and
-rollback commands are in [`docs/INSTALL.md`](docs/INSTALL.md).
+Candidate installation creates a **regular** wrapper:
 
-The setup creates all state directories, the SQLite schema and four separate
-512-bit keys for TOR headers, header pseudonyms, HTML-report identities and
-SQLite identity protection. Configuration validation and database creation run as the configured INN account; runtime state is installed as `news:news` by default. Configuration and keys remain `root:news` and read-only to the runtime account.
+```text
+<pathfilter>/filter_nnrpd.pl.ng
+```
 
-Upgrade, rollback and custom-path examples are documented in
-[`docs/INSTALL.md`](docs/INSTALL.md).
+The wrapper is pinned to the candidate release. The active
+`filter_nnrpd.pl` is not changed and continues loading the currently deployed
+code. This avoids exposing new code to fresh nnrpd processes before explicit
+activation.
 
-Before activation, test the hook with the same `do`-style loading used by INN:
+Upgrade from rc1, rc2, rc3, rc4, rc5 or another recognised flat installation is
+performed with:
 
 ```sh
-PF="$(innconfval pathfilter)"
-sudo -u news perl -e '
-    my $file = shift;
-    my $loaded = do $file;
-    die "Perl load error: $@" if $@;
-    die "Operating-system error: $!" unless defined $loaded;
-    die "Filter returned false\n" unless $loaded;
-    die "filter_post() is not defined\n" unless defined &filter_post;
-    print "Postfilter-NG hook load OK\n";
-' "$PF/filter_nnrpd.pl.ng"
+sudo perl installer/install-postfilter --upgrade
 ```
 
-`ctlinnd reload filter.perl` applies to `filter_innd.pl`, not to this nnrpd
-posting hook. Activate Postfilter-NG for new reader processes or restart the
-local nnrpd/INN service according to the site layout.
+The installer copies the exact legacy tree, including local modifications, into
+a managed rollback snapshot. It does not move or remove the active flat tree at
+this stage. Existing TOML files and keys are preserved; exact historical path
+defaults are migrated with timestamped backups and current `.dist` references.
+
+After testing the candidate and reviewing audit output, activate it with:
+
+```sh
+sudo perl installer/install-postfilter --activate-candidate
+```
+
+Activation validates the candidate again, creates a previous-release wrapper,
+atomically replaces the active hook, verifies the exact modules and version
+loaded, and restores the old hook automatically on failure. Existing nnrpd
+sessions may continue using the version already loaded in memory.
+
+Guarded cleanup runs only after successful activation. It requires the active
+hook to load the latest installed release and requires a validated rollback
+wrapper. By default it retains the active and previous releases, then removes
+obsolete managed releases, the old flat prefix and stale installer artifacts.
+Cleanup can be retried explicitly:
+
+```sh
+sudo perl installer/install-postfilter --cleanup
+```
+
+Rollback swaps the verified active and previous wrappers without deleting either
+release:
+
+```sh
+sudo perl installer/install-postfilter --rollback
+```
+
+Detailed path discovery, migration, activation, cleanup and rollback behaviour is
+documented in [`docs/INSTALL.md`](docs/INSTALL.md).
 
 ## Audit and administration
 
@@ -205,12 +228,12 @@ administrative audit event.
 
 ## Project layout
 
-- `postfilter` — INN Perl hook target; the installer stages `filter_nnrpd.pl.ng` for review.
+- `postfilter` — release-local INN hook implementation loaded by generated wrappers.
 - `lib/Postfilter/` — engine, context, checks, storage, reporting and utilities.
 - `conf/` — canonical TOML configuration and local custom-rule module.
 - `examples/` — focused configurations and article fixtures.
 - `bin/postfilterctl` — administration command.
-- `installer/install-postfilter` — transactional installation, exact-path upgrade migration and rollback diagnostics.
+- `installer/install-postfilter` — immutable release installation, legacy snapshots, activation, rollback and guarded cleanup.
 - `migrations/` — SQLite schema and upgrade migrations.
 - `packaging/` — optional systemd report service and timer.
 - `share/` — Public Suffix data and report assets.
@@ -240,7 +263,7 @@ YYYY.MM.patch-stageN
 Examples:
 
 ```text
-2026.07.5-rc5
+2026.07.5-rc6
 2026.07.5
 ```
 

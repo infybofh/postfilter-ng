@@ -146,3 +146,28 @@ All historical action forms are represented:
 
 Disabled and extensively commented examples are included at the end of
 `conf/conf.d/60-banlist.toml`.
+
+## Migrating an installed rc1–rc5 layout to rc6
+
+The configuration conversion described above is separate from the rc6 code
+layout migration. For an already installed release candidate, run:
+
+```sh
+sudo perl installer/install-postfilter --upgrade
+```
+
+Rc6 detects any recognised flat Postfilter-NG prefix, regardless of the release
+number, and copies the exact installed files to a managed `legacy-*` snapshot.
+It does not move the live code or change `filter_nnrpd.pl` during installation.
+This preserves manually patched rc1/rc2 installations as they actually exist on
+the server.
+
+After the candidate has been tested, activate it with:
+
+```sh
+sudo perl installer/install-postfilter --activate-candidate
+```
+
+The old flat prefix is removed only after the new active hook and a rollback
+wrapper have both been loaded successfully. An unidentifiable or non-loadable
+legacy tree is preserved and blocks automatic legacy cleanup.

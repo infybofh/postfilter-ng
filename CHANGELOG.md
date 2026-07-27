@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026.07.5-rc6 — 2026-07-27
+
+Immutable release deployment, explicit hook activation and guarded cleanup from
+the first external FreeBSD rc5 deployment report.
+
+- installs code into immutable `<prefix>/releases/<version>` directories instead
+  of replacing the mutable base prefix;
+- creates regular, version-pinned `filter_nnrpd.pl.ng` wrappers that work when
+  loaded with Perl `do` and do not depend on a symlink or executable source mode;
+- leaves the active `filter_nnrpd.pl` and its currently loaded flat release
+  untouched during candidate installation;
+- snapshots any recognised rc1–rc5 or otherwise versioned flat installation,
+  preserving local modifications rather than reconstructing a theoretical
+  release from the repository;
+- validates legacy snapshots as rollback targets and disables automatic legacy
+  cleanup when validation fails;
+- adds explicit `--activate-candidate` and `--rollback` transactions with atomic
+  hook replacement and automatic restoration on validation failure;
+- verifies that active and rollback wrappers load `Postfilter::NG` and
+  `Postfilter::InstallPaths` from the exact managed release directory and that
+  the runtime version matches the wrapper metadata;
+- records active, candidate and previous release state and maintains `current`
+  and `previous` links only after successful activation;
+- retains the active and at least one validated rollback release;
+- removes the old flat prefix, obsolete managed releases and stale installer
+  artifacts only after the active hook is verified as the latest installed
+  release and a rollback wrapper is available;
+- refuses cleanup when the active hook is older, unrecognised, outside the
+  managed release root or unable to construct the engine;
+- refuses uninstall while the active hook still depends on code below the
+  prefix;
+- documents `perl installer/install-postfilter` and `sh tests/run-tests` so
+  repositories uploaded through GitHub Web remain usable without Git executable
+  modes;
+- adds release-marker, regular-wrapper, path-containment, source-mode and cleanup
+  gate regression tests.
+
 ## 2026.07.5-rc5 — 2026-07-27
 
 Non-destructive FreeBSD upgrade migration and installer self-diagnostics from
@@ -21,7 +58,6 @@ the first external rc4 upgrade report.
   remain available for diagnosis;
 - adds functional regression tests for exact path migration, backup creation,
   custom-path preservation, distribution snapshots and repeated upgrades;
-- keeps Cleanfeed-NG local-hook material in the separate Cleanfeed-NG project.
 
 ## 2026.07.5-rc4 — 2026-07-25
 

@@ -62,7 +62,7 @@ use Postfilter::PublicSuffix;
 use Postfilter::Result;
 use Postfilter::SavedArticle;
 
-our $VERSION = '2026.07.5-rc5';
+our $VERSION = '2026.07.5-rc6';
 
 # Function: new
 # Purpose: Constructs one reusable per-nnrpd engine, loads configuration, dependencies, SQLite,

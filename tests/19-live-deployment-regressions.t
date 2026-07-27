@@ -122,8 +122,8 @@ like(
 );
 like(
     $installer,
-    qr/Normalise ownership and modes after initialization/s,
-    'installer performs a final recursive ownership and mode normalization',
+    qr/_chown_tree\(.*state_dir.*_chown_tree\(.*saved_dir/s,
+    'installer performs final recursive ownership and mode normalization',
 );
 
 done_testing;

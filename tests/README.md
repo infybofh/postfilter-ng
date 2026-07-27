@@ -5,7 +5,7 @@ checks, realistic article fixtures and concurrent SQLite writers.
 
 Test groups:
 
-- `00-compile.t` — production module compilation and INN symlink validation.
+- `00-compile.t` — production module compilation and INN entry-point validation.
 - `01-codes.t` — symbolic and numeric result-code mappings.
 - `02`–`04` — raw-client and INN-hook input, public/auth identities and custom
   error policy.
@@ -39,3 +39,5 @@ payload rejection, binary payload acceptance and mixed-crosspost rejection.
 - `22-installer-upgrade-paths.t` — exact historical-path migration, timestamped
   backups, custom-path preservation, path-adjusted `.dist` snapshots and failed
   upgrade diagnostics.
+
+- `23-release-layout-and-cleanup.t` — immutable release markers, regular wrappers, managed-path containment, GitHub Web source modes and cleanup gates.

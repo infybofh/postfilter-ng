@@ -1,13 +1,31 @@
-# Installation
+# Installation, activation, rollback and cleanup
 
 ## 1. Read before running
 
 Install the release candidate on a staging reader or keep `policy.mode = "audit"`
-until representative traffic has been reviewed. Back up the active
-`filter_nnrpd.pl`, the Postfilter configuration and the INN configuration before
-activation.
+until representative traffic has been reviewed. Back up the active INN hook,
+Postfilter configuration and INN configuration before the first migration.
 
-## 2. Dependencies
+Postfilter-NG rc6 uses immutable release directories. Installing a candidate does
+**not** replace the code used by the active `filter_nnrpd.pl`. Activation is a
+separate explicit operation.
+
+## 2. Source files uploaded through GitHub Web
+
+GitHub's web upload interface does not preserve Git executable modes. The source
+installer and administration scripts therefore do not depend on an executable
+bit. Invoke them explicitly through Perl:
+
+```sh
+perl installer/install-postfilter --help
+perl bin/postfilterctl help
+sh tests/run-tests
+```
+
+The installer rewrites installed shebangs to the exact Perl interpreter that ran
+it and sets the installed command copies to mode `0755`.
+
+## 3. Dependencies
 
 Debian/Ubuntu package names commonly include:
 
@@ -16,61 +34,25 @@ apt install perl libdbi-perl libdbd-sqlite3-perl libnet-dns-perl \
     libtimedate-perl libcryptx-perl libtoml-tiny-perl
 ```
 
-On FreeBSD, install Perl and the equivalent `p5-*` packages from pkg or ports
-before running the installer. Perl installed from packages normally resides in
-`/usr/local/bin/perl`. The source entry points use `#!/usr/bin/env perl`; the
-installer replaces every installed command shebang with the absolute interpreter
-that is running the installer.
+On FreeBSD, install Perl and the equivalent `p5-*` packages from pkg or ports.
+Package Perl normally resides at `/usr/local/bin/perl`. The complete CPAN list is
+in `cpanfile`.
 
-The complete CPAN distribution list is in `cpanfile`.
-
-## 3. Dry run and path discovery
+## 4. Dry run and path discovery
 
 ```sh
-sudo ./installer/install-postfilter --dry-run
+sudo perl installer/install-postfilter --dry-run
 ```
 
 The installer applies explicit options first, then values returned by
 `innconfval`, then portable fallback paths. The plan prints the selected Perl
-interpreter, configuration file, state directory, hook candidate and all other
-installation paths before changing anything.
+interpreter, candidate release, configuration file, state directory, hook paths,
+retention count and all other installation paths before changing anything.
 
-The selected configuration file and state directory are written into:
-
-```text
-<prefix>/lib/Postfilter/InstallPaths.pm
-```
-
-The nnrpd hook and `postfilterctl` use those installed defaults on every future
-invocation. `POSTFILTER_CONFIG` and `POSTFILTER_STATE_DIR` remain available only
-as explicit one-shot overrides.
-
-## 4. Install
-
-Normal discovery:
+Typical FreeBSD source-build example:
 
 ```sh
-sudo ./installer/install-postfilter --use-innconfval
-```
-
-Linux-style explicit layout:
-
-```sh
-sudo ./installer/install-postfilter \
-  --filter-dir /etc/news/filter \
-  --config-dir /etc/news/postfilter-ng \
-  --state-dir /var/lib/news/postfilter-ng \
-  --saved-dir /var/spool/news/postfilter-ng/rejected \
-  --active-file /var/lib/news/active \
-  --sendmail /usr/lib/news/bin/innmail \
-  --html-dir /var/www/html/postfilter \
-  --user news --group news
-```
-
-Typical custom FreeBSD source-build layout:
-
-```sh
-sudo ./installer/install-postfilter \
+sudo perl installer/install-postfilter --dry-run \
   --filter-dir /usr/local/news/bin/filter \
   --config-dir /usr/local/news/etc/postfilter-ng \
   --state-dir /usr/local/news/db/postfilter-ng \
@@ -81,18 +63,102 @@ sudo ./installer/install-postfilter \
   --user news --group news
 ```
 
-`innconfval` normally supplies these values automatically. Explicit options are
-useful for non-standard builds, jails and package staging.
+## 5. Immutable release layout
 
-During installation the code tree is copied to a temporary prefix, installed
-shebangs are pinned to the current Perl interpreter, all Perl files are compiled,
-and the prefix is activated transactionally. Existing operator configuration is
-preserved during upgrade unless `--force-config` is supplied.
+Rc6 installs code below a versioned directory:
 
-### Upgrade path migration
+```text
+<prefix>/
+├── releases/
+│   ├── legacy-2026.07.5-rc2/
+│   └── 2026.07.5-rc6/
+├── current  -> releases/2026.07.5-rc6
+├── previous -> releases/legacy-2026.07.5-rc2
+├── release-state.json
+└── legacy-flat-manifest.json
+```
 
-With `--upgrade`, rc5 scans the preserved main TOML file and active `conf.d/*.toml`
-fragments for exact historical shipped defaults such as:
+`current` and `previous` are created only after successful activation. Release
+directories are not overwritten while active.
+
+The INN filter directory contains regular wrapper files:
+
+```text
+filter_nnrpd.pl       active wrapper
+filter_nnrpd.pl.ng    candidate wrapper
+filter_nnrpd.pl.previous  rollback wrapper
+```
+
+Each generated wrapper is pinned to one immutable release directory. It loads
+that release through Perl `do`, verifies that `filter_post()` exists and does not
+depend on the wrapper being executable or being a symbolic link.
+
+## 6. Fresh installation
+
+```sh
+sudo perl installer/install-postfilter
+```
+
+The installer:
+
+1. creates `<prefix>/releases/<version>` through a staging directory;
+2. rewrites installed shebangs and compiles the staged Perl tree;
+3. generates release-local `Postfilter::InstallPaths` values;
+4. installs or preserves configuration, keys, SQLite state and saved-article
+   directories;
+5. creates a regular `filter_nnrpd.pl.ng` wrapper pinned to the candidate;
+6. validates configuration and SQLite as the configured INN account;
+7. loads the candidate as embedded nnrpd Perl does and constructs the engine;
+8. leaves `filter_nnrpd.pl` unchanged;
+9. performs no cleanup before activation.
+
+A successful candidate installation ends with an explicit notice similar to:
+
+```text
+Candidate installed and validated: 2026.07.5-rc6
+Active hook was not modified.
+No cleanup was performed because the candidate is not active.
+```
+
+## 7. Upgrade from rc1 through rc5 or another flat installation
+
+Run:
+
+```sh
+sudo perl installer/install-postfilter --upgrade
+```
+
+Any recognised pre-rc6 installation under the old flat prefix is treated as a
+legacy installation, regardless of its release number. The installer does not
+assume that the old release is rc5.
+
+Before installing rc6 it:
+
+1. lists the legacy top-level entries;
+2. copies the exact installed tree, including local modifications and file
+   modes, to a temporary sibling directory outside the prefix;
+3. moves the completed snapshot into
+   `<prefix>/releases/legacy-<detected-version>/`;
+4. creates a temporary wrapper to that snapshot and loads it;
+5. records whether the snapshot is a validated rollback target;
+6. leaves the original flat tree and active `filter_nnrpd.pl` untouched.
+
+The copy excludes `releases`, `current`, `previous` and installer state files,
+preventing recursive snapshots.
+
+If the old version cannot be identified, the snapshot receives a name such as:
+
+```text
+legacy-unknown-20260727T153000Z
+```
+
+If the snapshot cannot be loaded, it is still preserved, but automatic removal
+of the old flat installation is disabled.
+
+### Configuration path migration
+
+During `--upgrade`, exact historical shipped paths in the preserved main TOML
+and active `conf.d/*.toml` fragments are migrated, including:
 
 ```text
 /etc/news/postfilter-ng
@@ -103,40 +169,23 @@ fragments for exact historical shipped defaults such as:
 /usr/lib/news/bin/innmail
 ```
 
-Only complete path values are replaced. Paths that merely share a prefix, such
-as `/etc/news/postfilter-ng-custom`, remain unchanged.
-
-Before modifying any operator file, the installer creates a timestamped backup
-under:
+Only complete historical values are replaced. Similar custom prefixes remain
+unchanged. Before changing operator files the installer creates:
 
 ```text
 <config_dir>/upgrade-backups/YYYYMMDDTHHMMSSZ-<pid>/
 ```
 
-It also writes the current release configuration beside the preserved files as:
+It also writes path-adjusted reference files that are not loaded automatically:
 
 ```text
 postfilter.toml.dist
 conf.d/<fragment>.toml.dist
 ```
 
-The `.dist` files contain the detected site-local paths and are not loaded by
-Postfilter-NG.
+## 8. Ownership and keys
 
-## 5. Ownership and keys
-
-Setup creates four independent 512-bit keys from `/dev/urandom`:
-
-```text
-tor-header-encryption.key
-header-pseudonym.key
-html-report-privacy.key
-database-privacy.key
-```
-
-Existing keys are verified and preserved during upgrade.
-
-Expected ownership is intentionally split:
+Expected ownership is split intentionally:
 
 ```text
 Configuration and keys:
@@ -152,91 +201,22 @@ Saved rejected articles:
   files        news:news 0640
 ```
 
-The runtime account reads policy and keys but cannot rewrite them. It owns the
-state that nnrpd must create and update.
-
-The installer runs configuration validation and database migration after an
-irreversible `setgid`/`setuid` privilege drop to the configured INN account. It
-then normalizes mutable runtime ownership as a final upgrade safeguard.
-
-Installations created by an early release candidate can be repaired once with:
-
-```sh
-chown -R news:news /var/lib/news/postfilter-ng
-find /var/lib/news/postfilter-ng -type d -exec chmod 0750 {} +
-find /var/lib/news/postfilter-ng -type f -exec chmod 0640 {} +
-```
-
-Adjust the state path for the local INN layout. Do not apply this recursive
-ownership change to the configuration or key directory.
-
-## 6. Staged hook
-
-The installer never replaces the active INN posting filter. It creates:
+Setup creates or preserves four independent 512-bit keys:
 
 ```text
-<pathfilter>/filter_nnrpd.pl.ng -> <prefix>/postfilter
+tor-header-encryption.key
+header-pseudonym.key
+html-report-privacy.key
+database-privacy.key
 ```
 
-The source archive does not contain `filter_nnrpd.pl`.
+The `news` account can read policy and keys but cannot alter its own filtering
+rules.
 
-A manual installation creates the same candidate explicitly, for example:
+## 9. Validate the candidate
 
-```sh
-ln -s /usr/local/lib/postfilter-ng/postfilter \
-  /usr/local/news/bin/filter/filter_nnrpd.pl.ng
-```
-
-The configured text and binary diagnostic subdirectories are created below
-`saved_dir`. Date directories are created only when an article is saved.
-
-## 7. Automatic installation checks
-
-Before reporting success, the installer performs all of these checks:
-
-1. compiles the staged code with the selected Perl interpreter;
-2. generates and compiles `Postfilter::InstallPaths`;
-3. clears inherited Perl library and option variables during validation;
-4. runs `postfilterctl check-config` and `db-migrate` with the detected paths
-   supplied explicitly;
-5. starts a clean Perl process, loads `Postfilter::InstallPaths` from the active
-   prefix and compares the loaded module, configuration file and state directory
-   with the installation plan;
-6. repeats `postfilterctl check-config` and runs `db-check` without environment
-   variables or command-line path overrides;
-7. loads `filter_nnrpd.pl.ng` through Perl `do` with an nnrpd-like `$0`;
-8. constructs and shuts down the Postfilter-NG engine through that embedded-hook
-   path.
-
-A mismatch between detected paths and runtime paths stops installation before
-the candidate is activated. If an activated upgrade fails, the previous prefix
-is restored and the failed tree is retained as:
-
-```text
-<prefix>.failed.<UTC timestamp>.<pid>
-```
-
-## 8. Verify before activation
-
-The installed defaults make explicit path arguments unnecessary:
-
-```sh
-sudo -u news postfilterctl check-config
-sudo -u news postfilterctl db-check
-```
-
-Expected output includes the source configuration origin and a successful SQLite
-integrity check. The generated defaults can be inspected with:
-
-```sh
-perl -I/usr/local/lib/postfilter-ng/lib \
-  -MPostfilter::InstallPaths \
-  -e 'print Postfilter::InstallPaths::config_file(), "\n", Postfilter::InstallPaths::state_dir(), "\n"'
-```
-
-Adjust the prefix when it was overridden.
-
-A standalone embedded-load verification remains useful after manual changes:
+The installer already performs the runtime checks, but the candidate can be
+loaded manually without executing it directly:
 
 ```sh
 PF="$(innconfval pathfilter)"
@@ -247,68 +227,130 @@ sudo -u news perl -e '
     die "Perl load error: $@" if $@;
     die "Operating-system error: $!" unless defined $loaded;
     die "Filter returned false\n" unless $loaded;
-    die "Postfilter-NG engine entry point is unavailable\n"
-        unless defined &main::_engine;
-    my $engine = main::_engine();
-    die "Engine construction failed\n" unless $engine;
-    $engine->shutdown;
-    print "Postfilter-NG embedded hook load OK\n";
+    die "filter_post() is not defined\n" unless defined &filter_post;
+    print "Postfilter-NG hook load OK\n";
 ' "$PF/filter_nnrpd.pl.ng"
 ```
 
-Test representative articles offline:
+`ctlinnd reload filter.perl` reloads `filter_innd.pl`; it does not reload the
+nnrpd posting hook. Each existing nnrpd process keeps the code already loaded
+for that session.
+
+## 10. Activate the candidate
+
+After configuration and audit review:
 
 ```sh
-postfilterctl explain --hook-stage raw examples/minimal-reader/raw-client-article.post
-postfilterctl explain --hook-stage inn examples/minimal-reader/inn-hook-article.post
+sudo perl installer/install-postfilter --activate-candidate
 ```
 
-Keep audit mode while observing INN's `news.notice`, `news.info`, `news.debug`
-and `news.err` outputs, SQLite statistics and the generated HTML report.
+Repeat the same explicit path options used during installation when
+`innconfval` cannot discover the local layout.
 
-## 9. Activate explicitly
+Activation performs the following guarded transaction:
 
-When no active hook exists:
+1. validates `filter_nnrpd.pl.ng` again;
+2. confirms that its release is the latest installed candidate;
+3. creates and validates `filter_nnrpd.pl.previous` for the currently active
+   managed release or validated legacy snapshot;
+4. preserves the current active hook temporarily;
+5. atomically renames the candidate wrapper to `filter_nnrpd.pl`;
+6. loads the new active hook and verifies the exact `Postfilter::NG` and
+   `InstallPaths` module locations plus runtime version;
+7. restores the old hook automatically if validation fails;
+8. updates `current`, `previous` and the `postfilterctl` command link;
+9. runs guarded cleanup.
+
+Existing nnrpd sessions may continue with the previous version already loaded in
+memory. New nnrpd processes load the newly activated wrapper.
+
+## 11. Guarded cleanup and retention
+
+The default retention is two releases:
+
+```text
+active release + one validated rollback release
+```
+
+A lower value is rejected. A larger value can be selected during install or
+activation:
 
 ```sh
-mv /etc/news/filter/filter_nnrpd.pl.ng \
-   /etc/news/filter/filter_nnrpd.pl
+sudo perl installer/install-postfilter --activate-candidate --keep-releases 3
 ```
 
-When an active hook already exists:
+Cleanup is permitted only when all required checks succeed:
+
+- the active hook is a generated regular wrapper;
+- the wrapper points below `<prefix>/releases`;
+- its marker matches the wrapper version;
+- it is the latest installed release recorded in `release-state.json`;
+- loading the hook resolves `Postfilter::NG` and `InstallPaths` from that exact
+  release directory;
+- the runtime version matches the wrapper version;
+- `filter_post()` and the engine load successfully;
+- a validated rollback wrapper exists.
+
+Only then may the installer remove:
+
+- obsolete managed release directories beyond retention;
+- the old flat `postfilter`, `lib`, `bin`, `installer` and other captured prefix
+  entries;
+- stale installer staging, failed-upgrade and generated hook backup artifacts.
+
+No arbitrary directory is removed. Every release must be below the managed
+`releases` root and contain a valid `.postfilter-ng-release.json` marker. Legacy
+flat removal uses only the exact top-level entries recorded before migration.
+
+When the candidate is merely installed, cleanup is deliberately skipped. It can
+be retried after manual inspection with:
 
 ```sh
-mv /etc/news/filter/filter_nnrpd.pl \
-   /etc/news/filter/filter_nnrpd.pl.pre-postfilter-ng
-mv /etc/news/filter/filter_nnrpd.pl.ng \
-   /etc/news/filter/filter_nnrpd.pl
+sudo perl installer/install-postfilter --cleanup
 ```
 
-Adjust `pathfilter` for the local INN installation.
+If the active hook does not use the latest installed release, cleanup refuses to
+remove anything.
 
-The active hook is loaded when an `nnrpd` process starts. Existing reader
-sessions retain the code and configuration already loaded for that process.
-Reconnect test clients or restart the local nnrpd/INN service according to the
-site procedure.
-
-`ctlinnd reload filter.perl` reloads `filter_innd.pl`; it does not reload
-Postfilter-NG.
-
-Rollback restores `filter_nnrpd.pl.pre-postfilter-ng` and starts new nnrpd
-processes.
-
-## 10. Enabling mixed operation
-
-The installed default is `article_types.mode = "text-only"`. To enable a mixed
-reader, review every binary group glob, set the mode to `mixed`, then run:
+## 12. Rollback
 
 ```sh
-postfilterctl check-config
-postfilterctl explain --hook-stage inn examples/mixed-reader/text-yenc-reject.post
-postfilterctl explain --hook-stage inn examples/mixed-reader/binary-yenc-accept.post
-postfilterctl explain --hook-stage inn examples/mixed-reader/mixed-crosspost-reject.post
+sudo perl installer/install-postfilter --rollback
 ```
 
-A failed configuration reload never replaces the previous valid generation.
-Keep global audit mode while evaluating type-separated SQLite statistics and the
-HTML report.
+Rollback validates `filter_nnrpd.pl.previous`, swaps the active and previous
+wrappers, loads the rolled-back hook and updates `current`, `previous` and
+`postfilterctl`. It performs no cleanup, so the replaced release remains
+available for a roll-forward.
+
+## 13. Failure diagnostics
+
+Failed candidate trees are preserved with names such as:
+
+```text
+<prefix>/releases/.failed-2026.07.5-rc6-YYYYMMDDTHHMMSSZ-<pid>
+```
+
+Legacy snapshot metadata is stored in:
+
+```text
+<prefix>/legacy-flat-manifest.json
+```
+
+Release and activation state is stored in:
+
+```text
+<prefix>/release-state.json
+```
+
+After a later successful activation and verified rollback, guarded cleanup
+removes stale installer artifacts.
+
+## 14. Uninstall safety
+
+Uninstall refuses to remove the code prefix while the active hook still points
+to a managed Postfilter-NG release under that prefix. This prevents a working
+filter from becoming `SERVER perl filter not defined` after code removal.
+
+SQLite state and saved rejected articles are preserved by default. Configuration
+is preserved with `--keep-config`.

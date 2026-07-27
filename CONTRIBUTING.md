@@ -39,7 +39,7 @@ cpanm Perl::Tidy Perl::Critic
 Run the complete test suite:
 
 ```sh
-./tests/run-tests
+sh tests/run-tests
 ```
 
 Compile the principal entry points:
