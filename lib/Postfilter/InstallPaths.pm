@@ -17,7 +17,7 @@ one-shot diagnostics and packaging overrides.
 
 =cut
 
-our $VERSION = '2026.07.5-rc6';
+our $VERSION = '2026.07.5-rc7';
 
 use constant CONFIG_FILE => '/etc/news/postfilter-ng/postfilter.toml';
 use constant STATE_DIR   => '/var/lib/news/postfilter-ng';

@@ -633,20 +633,23 @@ sub _validate_candidate_release {
         version   => $release_version,
     );
 
-    my @base_command = ("$release_directory/bin/postfilterctl");
-    my @explicit_command = (
-        @base_command,
+    my @runtime_command = (
+        "$release_directory/bin/postfilterctl",
         '--config', "$option{config_dir}/postfilter.toml",
         '--state-dir', $option{state_dir},
     );
-    _run_as_runtime_user(@explicit_command, 'check-config')
+    _run_as_runtime_user(@runtime_command, 'check-config')
         or die "Configuration validation failed for runtime user $option{user}\n";
-    _run_as_runtime_user(@explicit_command, 'db-migrate')
+    _run_as_runtime_user(@runtime_command, 'db-migrate')
         or die "SQLite initialisation failed for runtime user $option{user}\n";
+
+    # Verify independently that the generated defaults are correct, but never
+    # make installation success depend on implicit path discovery by a second
+    # program.  Every operational validation receives the resolved paths.
     _verify_install_paths_module_for_release($release_directory);
-    _run_as_runtime_user(@base_command, 'check-config')
+    _run_as_runtime_user(@runtime_command, 'check-config')
         or die "Generated runtime configuration path validation failed\n";
-    _run_as_runtime_user(@base_command, 'db-check')
+    _run_as_runtime_user(@runtime_command, 'db-check')
         or die "Generated runtime state path validation failed\n";
     _verify_hook_load(
         hook             => $candidate_hook,
@@ -1514,7 +1517,7 @@ package Postfilter::InstallPaths;
 use strict;
 use warnings;
 
-our \$VERSION = '2026.07.5-rc6';
+our \$VERSION = '2026.07.5-rc7';
 
 use constant CONFIG_FILE => $config_file;
 use constant STATE_DIR   => $state_directory;

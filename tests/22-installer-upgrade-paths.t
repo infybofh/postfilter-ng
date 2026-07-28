@@ -119,6 +119,7 @@ like($installer, qr/sub _verify_install_paths_module_for_release/, 'installer di
 like($installer, qr/InstallPaths module=/, 'installer prints the loaded module path');
 like($installer, qr/--config.*postfilter\.toml/s, 'installer performs explicit bootstrap configuration validation');
 like($installer, qr/--state-dir/, 'installer performs explicit bootstrap state validation');
+unlike($installer, qr/\@base_command.*?check-config/s, 'installer has no implicit-path candidate validation');
 like($installer, qr/PERL5LIB PERLLIB PERL5OPT/, 'installer clears inherited Perl path and option variables');
 like($installer, qr/\.failed\./, 'installer preserves failed activated trees for diagnosis');
 like($installer, qr/_install_distribution_configuration_snapshots/, 'installer writes current .dist references on upgrade');

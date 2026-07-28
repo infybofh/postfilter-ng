@@ -102,17 +102,17 @@ my $installer = do {
 };
 like(
     $installer,
-    qr/_run_as_runtime_user\(\@base_command, 'check-config'\)/,
+    qr/_run_as_runtime_user\(\@runtime_command, 'check-config'\)/,
     'installer validates configuration as the runtime INN account',
 );
 like(
     $installer,
-    qr/_run_as_runtime_user\(\@explicit_command, 'db-migrate'\)/,
+    qr/_run_as_runtime_user\(\@runtime_command, 'db-migrate'\)/,
     'installer initializes SQLite as the runtime INN account',
 );
 unlike(
     $installer,
-    qr/system\(\@base_command,\s*'(?:check-config|db-migrate)'\)/,
+    qr/system\(\@(?:base|runtime)_command,\s*'(?:check-config|db-migrate)'\)/,
     'installer no longer creates runtime state through root-run postfilterctl commands',
 );
 like(

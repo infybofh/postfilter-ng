@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026.07.5-rc7 — 2026-07-28
+
+FreeBSD candidate-validation regression fix after the external rc6 upgrade report.
+
+- passes the installer-resolved `--config` and `--state-dir` paths to every
+  `postfilterctl` candidate check, including the post-generation `check-config`
+  and `db-check` calls that previously fell back to Linux defaults;
+- keeps an independent clean-process verification of the generated
+  `Postfilter::InstallPaths` module without making installation success depend
+  on implicit path discovery in a second executable;
+- resolves the `postfilterctl` release library from the real path of `__FILE__`
+  instead of `FindBin`, including when the command is invoked through the
+  installer-managed `/usr/local/sbin/postfilterctl` symlink;
+- adds a lightweight `postfilterctl install-paths` diagnostic that requires no
+  optional runtime modules and prints the loaded module, configuration and state
+  paths;
+- adds an executable regression test for direct and symlinked administration
+  commands with FreeBSD-style `/usr/local/news` paths, and rejects any return to
+  `/etc/news` or `/var/lib/news`;
+- fixes the duplicated `runtime_config` argument in the installer plan output.
+
 ## 2026.07.5-rc6 — 2026-07-27
 
 Immutable release deployment, explicit hook activation and guarded cleanup from

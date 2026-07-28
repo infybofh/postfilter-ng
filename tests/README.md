@@ -41,3 +41,5 @@ payload rejection, binary payload acceptance and mixed-crosspost rejection.
   upgrade diagnostics.
 
 - `23-release-layout-and-cleanup.t` — immutable release markers, regular wrappers, managed-path containment, GitHub Web source modes and cleanup gates.
+
+- `24-runtime-path-bootstrap.t` — executable direct/symlink path bootstrap and explicit candidate-validation paths.
