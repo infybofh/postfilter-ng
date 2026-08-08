@@ -28,6 +28,9 @@ Test groups:
 - `21-portability-and-dns-deadlines.t` — portable source shebangs,
   installer-generated runtime paths, asynchronous hard DNS deadlines and
   single-shot processing-timeout reporting.
+- `25-julien-feedback.t` — PATH-only `innconfval` discovery, locale-independent
+  article dates, audit-mode header finalisation, canonical shipped config and
+  retired-provider cleanup.
 
 `sqlite-concurrency.py` uses Python's standard `sqlite3` module for WAL and
 schema stress. Repeat load testing through Perl DBI/DBD::SQLite on the target INN
@@ -43,3 +46,11 @@ payload rejection, binary payload acceptance and mixed-crosspost rejection.
 - `23-release-layout-and-cleanup.t` — immutable release markers, regular wrappers, managed-path containment, GitHub Web source modes and cleanup gates.
 
 - `24-runtime-path-bootstrap.t` — executable direct/symlink path bootstrap and explicit candidate-validation paths.
+
+## Privileges and locale
+
+The Perl regression suite does not require root and should pass when run as the
+INN account, for example `su -m news -c 'sh tests/run-tests'` where supported.
+Realistic Date-header fixtures are generated with fixed English RFC tokens and
+do not depend on the account's `LC_TIME`. Root-only success is therefore a test
+regression and should be reported rather than documented as a requirement.

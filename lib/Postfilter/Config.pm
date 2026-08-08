@@ -1707,6 +1707,36 @@ sub _validate_rule_lists {
             }
 
             $entry->{enabled} = 1 unless exists $entry->{enabled};
+            if ($list_name eq 'dnsbl' && exists $entry->{ip_versions}) {
+                if (ref($entry->{ip_versions}) ne 'ARRAY'
+                    || !@{ $entry->{ip_versions} }) {
+                    _disable_entry(
+                        $entry,
+                        $warnings,
+                        $list_name,
+                        'ip_versions must be a non-empty array containing ipv4 and/or ipv6',
+                    );
+                    next;
+                }
+
+                my %seen_version;
+                my @valid_versions = grep {
+                    defined($_)
+                        && ($_ eq 'ipv4' || $_ eq 'ipv6')
+                        && !$seen_version{$_}++
+                } @{ $entry->{ip_versions} };
+
+                if (@valid_versions != @{ $entry->{ip_versions} }) {
+                    _disable_entry(
+                        $entry,
+                        $warnings,
+                        $list_name,
+                        'ip_versions contains an unsupported or duplicate value',
+                    );
+                    next;
+                }
+            }
+
             if (exists $entry->{article_types}) {
                 if (ref($entry->{article_types}) ne 'ARRAY') {
                     _disable_entry(

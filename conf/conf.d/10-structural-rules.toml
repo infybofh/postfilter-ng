@@ -65,7 +65,6 @@ allowed_pattern = "^(?:text/plain|text/html|multipart/alternative)"
 id = "protect-complaint-headers"
 enabled = true
 name_pattern = "Complaint"
-exception_pattern = "^X-Complaints-To$"
 
 [[forbidden_header_rule]]
 id = "protect-posting-headers"

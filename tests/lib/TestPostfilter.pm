@@ -4,7 +4,6 @@ use strict;
 use warnings;
 
 use Exporter 'import';
-use POSIX qw(strftime);
 use File::Temp qw(tempdir);
 
 use Postfilter::Context;
@@ -359,7 +358,20 @@ sub base_config {
 }
 
 sub current_rfc_date {
-    return strftime('%a, %d %b %Y %H:%M:%S +0000', gmtime());
+    my @weekday = qw(Sun Mon Tue Wed Thu Fri Sat);
+    my @month = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
+    my ($sec, $min, $hour, $mday, $mon, $year, $wday) = gmtime();
+
+    return sprintf(
+        '%s, %02d %s %04d %02d:%02d:%02d +0000',
+        $weekday[$wday],
+        $mday,
+        $month[$mon],
+        $year + 1900,
+        $hour,
+        $min,
+        $sec,
+    );
 }
 
 sub test_logger {

@@ -1,5 +1,5 @@
 ###############################################################################
-# Postfilter-NG 2026.07.5-rc7
+# Postfilter-NG 2026.08.1-rc1
 # Main configuration file
 ###############################################################################
 #
@@ -449,7 +449,6 @@ reload_interval_seconds = 30
 state_dir = "/var/lib/news/postfilter-ng"
 saved_dir = "/var/spool/news/postfilter-ng/rejected"
 active_file = "/var/lib/news/active"
-html_output = "/var/www/html/postfilter/index.html"
 public_suffix_file = "/etc/news/postfilter-ng/public_suffix_list.dat"
 sendmail = "/usr/lib/news/bin/innmail"
 
@@ -460,7 +459,6 @@ sendmail = "/usr/lib/news/bin/innmail"
 tor_header = "/etc/news/postfilter-ng/keys/tor-header-encryption.key"
 header_pseudonym = "/etc/news/postfilter-ng/keys/header-pseudonym.key"
 html_report = "/etc/news/postfilter-ng/keys/html-report-privacy.key"
-database_privacy = "/etc/news/postfilter-ng/keys/database-privacy.key"
 
 [database]
 # SQLite replaces access.log, legal.log and the old MySQL backend.  The database
@@ -820,6 +818,7 @@ identity_mode = "hmac"
 key_file = "/etc/news/postfilter-ng/keys/html-report-privacy.key"
 
 [new_headers]
-# Example public operational headers.  Remove or replace values for your site.
-X-Complaints-To = "abuse@bofh.team"
-X-Postfilter = "Postfilter-NG 2026.07.5-rc7"
+# Optional site-local operational headers.  INN itself should generate the standard
+# Injection-Info mail-complaints-to parameter from its inn.conf `complaints` setting;
+# do not duplicate it with the obsolete X-Complaints-To header.
+X-Postfilter = "Postfilter-NG 2026.08.1-rc1"

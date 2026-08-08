@@ -34,6 +34,54 @@ They are not required for a normal installed invocation. The installer removes
 them while performing its runtime-user validation, ensuring that generated
 installation paths work independently.
 
+
+## First site-specific settings to review
+
+Before leaving audit mode, review these settings rather than accepting the
+example values blindly:
+
+- `[headers].organization` and `force_default_organization`;
+- `[new_headers]` for any site-local informational headers;
+- `[article_types]`, text/binary limits and Distribution policy;
+- trusted/access profiles and local group exceptions;
+- logging, saved-article and HTML-report destinations;
+- DNS reputation modules and every enabled provider.
+
+Postfilter-NG no longer ships an `X-Complaints-To` header. RFC 5536 defines the
+standard `Injection-Info` `mail-complaints-to` parameter and notes that a server
+generating `Injection-Info` has no need for the older non-standard complaint
+header. With INN, set `complaints` in `inn.conf`; INN then writes the
+`mail-complaints-to` value on locally posted articles.
+
+The shipped configuration no longer contains the retired SORBS DNSBL.  It uses
+DroneBL for IPv4 clients instead, restricted to conservative high-confidence
+return codes.  Experimental/ambiguous classes, open DNS resolvers and abused VPN
+services are deliberately not treated as positive listings.  DroneBL currently
+publishes its public DNSBL for IPv4 only, so the provider is scoped with
+`ip_versions = ["ipv4"]`; providers without `ip_versions` retain the historical
+dual-stack lookup behaviour.
+
+`conf/conf.d/40-reputation.toml` also contains disabled examples for Spamhaus
+DQS XBL and AuthBL.  They require an operator-specific DQS key and must not be
+enabled with the placeholder key.  XBL identifies compromised IPs.  AuthBL is
+useful around authenticated services and the example uses `action = "mark"` so
+it contributes a signal without automatically rejecting a posting.  Do not use
+Spamhaus PBL (or an undifferentiated ZEN result) as an NNTP client-IP blocking
+policy: PBL intentionally includes end-user/dynamic address space and is an SMTP
+policy dataset rather than evidence that an NNTP user is abusive.
+
+To disable DNS reputation globally, set `rbl = false`, `surbl = false` and
+`uribl = false` under `[modules]` (and `tor = false` if TOR DNS checks are not
+wanted). To disable only one configured provider, set its `enabled = false`.
+`[timeouts].dns_query_seconds` limits one lookup and `dns_total_seconds` limits
+the complete per-article DNS work. Provider `on_timeout` and `on_error` decide
+whether lookup failure is fail-open (`accept`) or fail-closed (`reject`).
+
+For compatibility with preserved pre-2026.08.1-rc1 configurations, the runtime still
+accepts `paths.html_output` as a fallback for `html_report.output_file` and
+`keys.database_privacy` as a fallback for `database.privacy.key_file`. New
+configuration files should use only the canonical nested settings.
+
 ## Regex strings
 
 Prefer literal TOML strings:

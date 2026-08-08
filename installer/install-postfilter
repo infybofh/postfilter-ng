@@ -1233,6 +1233,7 @@ sub _resolve_inn_paths {
         '/usr/local/libexec/news/innconfval',
         '/usr/local/bin/innconfval',
     );
+    $option{innconfval} //= _find_path_executable('innconfval');
     return unless $option{innconfval};
 
     $option{filter_dir} //= _inn_value($option{innconfval}, 'pathfilter');
@@ -1332,8 +1333,28 @@ sub _find_in_path {
 #                    rollback where applicable.
 sub _find_executable {
     for my $candidate (@_) {
-        return $candidate if -x $candidate;
+        return $candidate if -f $candidate && -x $candidate;
     }
+    return;
+}
+
+# Function: _find_path_executable
+# Purpose: Searches PATH for an executable without invoking a shell.
+# Parameters: $program
+# Operational notes: Empty and relative PATH entries are ignored deliberately.  This avoids
+#                    resolving ./innconfval when the installer is run with elevated privileges.
+sub _find_path_executable {
+    my ($program) = @_;
+    return unless defined $program && length $program;
+
+    for my $directory (split /:/, ($ENV{PATH} // '')) {
+        next unless length $directory;
+        next unless $directory =~ m{^/};
+
+        my $candidate = "$directory/$program";
+        return $candidate if -f $candidate && -x $candidate;
+    }
+
     return;
 }
 
@@ -1517,7 +1538,7 @@ package Postfilter::InstallPaths;
 use strict;
 use warnings;
 
-our \$VERSION = '2026.07.5-rc7';
+our \$VERSION = '2026.08.1-rc1';
 
 use constant CONFIG_FILE => $config_file;
 use constant STATE_DIR   => $state_directory;

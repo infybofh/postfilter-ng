@@ -22,7 +22,7 @@ Postfilter-NG is a Perl posting filter for the INN `nnrpd` service. It validates
 articles before acceptance, applies text and binary policies, records searchable
 audit events in SQLite, and supports staged deployment through audit mode.
 
-> **Version:** `2026.07.5-rc7`  
+> **Version:** `2026.08.1-rc1`  
 > **Status:** **Release candidate**  
 > **Runtime:** [Perl](https://www.perl.org/) 5.38 or newer and
 > [INN](https://www.eyrie.org/~eagle/software/inn/) 2.x  
@@ -40,7 +40,7 @@ audit events in SQLite, and supports staged deployment through audit mode.
 - SQLite WAL audit history with indexed long-term queries.
 - Stable symbolic `PF-*` reason codes and numeric compatibility codes.
 - Trusted profiles with selectable check bypasses.
-- DNSBL, URIBL, SURBL and TOR checks with caching, provider cooldown and a hard shared DNS deadline.
+- DNSBL, URIBL, SURBL and TOR checks with caching, provider cooldown and a hard shared DNS deadline; the shipped IP DNSBL default is conservative IPv4-only DroneBL, with optional Spamhaus DQS examples documented separately.
 - Last-known-good configuration snapshots and per-rule validation.
 - Static HTML statistics, saved-article diagnostics and `postfilterctl` tooling.
 - Transactional installation with persistent INN-discovered runtime paths, portable Perl entry points and independent cryptographic keys generated from `/dev/urandom`.
@@ -100,8 +100,9 @@ The installer verifies runtime dependencies before activation.
    [`docs/TEXT-AND-BINARY.md`](docs/TEXT-AND-BINARY.md).
 4. Review the MIME and Base64 policy in
    [`docs/TEXT-MIME-ATTACHMENTS.md`](docs/TEXT-MIME-ATTACHMENTS.md).
-5. Run the configuration and regression tests.
-6. Deploy with `policy.mode = "audit"` and inspect real traffic before enabling
+5. Review the site-specific checklist in [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md), especially Organization, Distribution, new headers and DNS providers.
+6. Run the configuration and regression tests as the INN account when possible.
+7. Deploy with `policy.mode = "audit"` and inspect real traffic before enabling
    enforcement.
 
 ## Quick verification
@@ -263,7 +264,7 @@ YYYY.MM.patch-stageN
 Examples:
 
 ```text
-2026.07.5-rc7
+2026.08.1-rc1
 2026.07.5
 ```
 

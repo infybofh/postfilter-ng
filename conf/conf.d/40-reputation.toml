@@ -16,18 +16,69 @@
 # meaningless.  IP DNSBL checks remain shared unless you deliberately scope them.
 ###############################################################################
 
+# SORBS was removed because the service was decommissioned in June 2024.
+# DroneBL is enabled as the conservative replacement for IPv4 clients.  The
+# selected return codes cover high-confidence bots, proxies and compromised
+# hosts while deliberately excluding experimental, open-resolver, VPN and
+# ambiguous classes.  DroneBL currently exposes its public DNSBL for IPv4 only,
+# so ip_versions prevents pointless IPv6 lookups.
+# Documentation: https://dronebl.org/docs/howtouse and https://dronebl.org/classes
+
 [[dnsbl]]
-id = "sorbs-socks-zombies"
+id = "dronebl"
 enabled = true
-zone = "dnsbl.sorbs.net"
-positive_codes = ["127.0.0.3", "127.0.0.9"]
-refused_codes = ["127.0.0.1"]
+zone = "dnsbl.dronebl.org"
+ip_versions = ["ipv4"]
+positive_codes = [
+    "127.0.0.3",
+    "127.0.0.6",
+    "127.0.0.7",
+    "127.0.0.8",
+    "127.0.0.9",
+    "127.0.0.10",
+    "127.0.0.11",
+    "127.0.0.13",
+    "127.0.0.14",
+    "127.0.0.15",
+    "127.0.0.16",
+]
+refused_codes = []
 action = "reject"
+on_error = "accept"
+on_timeout = "accept"
 failure_threshold = 5
 cooldown_seconds = 300
-positive_cache_seconds = 3600
-negative_cache_seconds = 300
-on_timeout = "accept"
+
+# Optional Spamhaus DQS examples.  These remain disabled because they require
+# an operator-specific DQS key and an account whose terms match the deployment.
+# Replace YOUR_DQS_KEY before enabling.  XBL is useful for compromised hosts;
+# AuthBL is particularly relevant to authenticated NNTP sessions and is shown as
+# a non-blocking mark because it is best treated as an additional signal.
+# Documentation: https://docs.spamhaus.com/datasets/
+#
+# [[dnsbl]]
+# id = "spamhaus-xbl"
+# enabled = true
+# zone = "YOUR_DQS_KEY.xbl.dq.spamhaus.net"
+# positive_codes = ["127.0.0.4"]
+# refused_codes = ["127.255.255.250", "127.255.255.251", "127.255.255.252"]
+# action = "reject"
+# on_error = "accept"
+# on_timeout = "accept"
+# failure_threshold = 5
+# cooldown_seconds = 300
+#
+# [[dnsbl]]
+# id = "spamhaus-authbl"
+# enabled = true
+# zone = "YOUR_DQS_KEY.authbl.dq.spamhaus.net"
+# positive_codes = ["127.0.0.20"]
+# refused_codes = ["127.255.255.250", "127.255.255.251", "127.255.255.252"]
+# action = "mark"
+# on_error = "accept"
+# on_timeout = "accept"
+# failure_threshold = 5
+# cooldown_seconds = 300
 
 [[surbl]]
 id = "multi-surbl"

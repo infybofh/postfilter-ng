@@ -71,8 +71,13 @@ sub apply {
     }
 
     my $distribution_result = _transform_distribution($context);
-    return $distribution_result unless $distribution_result->is_pass;
+    return $distribution_result
+        if !$distribution_result->is_pass
+        && ($config->{policy}{mode} // 'enforce') ne 'audit';
 
+    # Audit-mode technical rejections are accepted by nnrpd.  Complete the
+    # non-destructive header finalisation so an audit-accepted article receives
+    # the same configured operational headers as an ordinarily accepted one.
     _add_tor_header($context) if $context->{tor};
 
     if ($header_config->{include_new_headers}) {
@@ -86,6 +91,8 @@ sub apply {
     }
 
     _repair_mime_headers($context);
+
+    return $distribution_result unless $distribution_result->is_pass;
 
     return Postfilter::Result->pass(
         code    => 'PF-HEADER-000',

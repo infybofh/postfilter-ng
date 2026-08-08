@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.08.1-rc1 — 2026-08-08
+
+- discovers `innconfval` from absolute entries in `PATH` after checking standard INN locations, while retaining explicit `--innconfval` precedence;
+- makes realistic article-test Date headers locale-independent so the suite runs as the INN `news` account without requiring root;
+- continues safe header finalisation in audit mode after a technical Distribution rejection, so accepted audit articles still receive configured operational headers;
+- replaces the retired SORBS DNSBL with a conservative IPv4-only DroneBL default, adds generic DNSBL `ip_versions` scoping, and documents optional Spamhaus DQS XBL/AuthBL examples plus global/per-provider DNS reputation controls;
+- stops generating obsolete `X-Complaints-To` by default and documents INN `complaints` / RFC 5536 `Injection-Info; mail-complaints-to`;
+- removes duplicate `paths.html_output` and `keys.database_privacy` from the shipped configuration while retaining them as backwards-compatible runtime aliases;
+- adds a site-specific configuration checklist and regression coverage for the above behaviours.
+
 ## 2026.07.5-rc7 — 2026-07-28
 
 FreeBSD candidate-validation regression fix after the external rc6 upgrade report.

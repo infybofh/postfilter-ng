@@ -113,6 +113,10 @@ sub run_rbl {
     for my $provider (@{ $context->{config}{dnsbl} // [] }) {
         next unless $context->rule_applies_to_article_type($provider);
         next unless ref($provider) eq 'HASH' && ($provider->{enabled} // 1);
+        next unless _provider_supports_ip_version(
+            $provider,
+            $context->{client_ip},
+        );
 
         my $result = _query_ip_list(
             $context,
@@ -207,6 +211,23 @@ sub run_uri_lists {
     }
 
     return _pass('PF-URIBL-000', 'URI reputation checks passed');
+}
+
+# Function: _provider_supports_ip_version
+# Purpose: Skips providers that explicitly do not publish data for the client address family.
+# Parameters: $provider, $ip
+# Operational notes: Providers without ip_versions preserve historical dual-stack behaviour.
+sub _provider_supports_ip_version {
+    my ($provider, $ip) = @_;
+
+    my $versions = $provider->{ip_versions};
+    return 1 unless ref($versions) eq 'ARRAY' && @{$versions};
+
+    my $version = defined($ip) && index($ip, ':') >= 0
+        ? 'ipv6'
+        : 'ipv4';
+
+    return scalar grep { $_ eq $version } @{$versions};
 }
 
 # Function: _query_ip_list

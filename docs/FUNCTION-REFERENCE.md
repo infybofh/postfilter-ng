@@ -80,7 +80,7 @@ failure policy, concurrency, security implications and side effects.
 | `_resolve_inn_paths` | Uses `innconfval` to discover filter, configuration, database, spool, binary and active paths. | none |
 | `_apply_fallback_paths` | Fills unresolved paths with portable defaults. | none |
 | `_running_perl_path` | Resolves the exact Perl interpreter executing the installer. | none |
-| `_find_in_path` / `_find_executable` | Resolve commands without invoking a shell. | command candidates |
+| `_find_in_path` / `_find_executable` / `_find_path_executable` | Resolve commands without invoking a shell; installer path discovery ignores relative PATH entries for `innconfval`. | command candidates |
 | `_inn_value` | Reads one trimmed `innconfval` value. | `$binary, $key` |
 | `_check_dependencies` | Verifies required runtime Perl modules before installation. | none |
 | `_copy_tree` | Recursively copies release files while preserving modes and symlinks. | `$source, $destination` |
@@ -176,6 +176,7 @@ failure policy, concurrency, security implications and side effects.
 | `run_tor` | Determines whether the client is a local or DNS-listed TOR node and applies the configured policy. | `$class, $context` |
 | `run_rbl` | Checks the client address against enabled IP DNSBL providers under the shared DNS budget. | `$class, $context` |
 | `run_uri_lists` | Extracts registrable domains from article URLs and evaluates enabled SURBL/URIBL providers. | `$class, $context` |
+| `_provider_supports_ip_version` | Skips DNSBL providers that explicitly do not publish data for the client address family. | `$provider, $ip` |
 | `_query_ip_list` | Reverses an IPv4/IPv6 address and queries one DNSBL-style provider. | `$context, $ip, $provider, $list_type` |
 | `_dns_query` | Performs a cached, budget-aware DNS A query and updates provider health/cooldown state. | `$context, $query_name, $provider, $list_type` |
 | `_background_dns_query` | Performs one asynchronous DNS query within the smaller of query, DNS-total and article deadlines. | `$context, $resolver, $query_name` |
