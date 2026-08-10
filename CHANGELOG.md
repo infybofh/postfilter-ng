@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026.08.1-rc2 — 2026-08-10
+
+- refreshes untouched managed-release TOML configuration automatically during upgrade while preserving locally modified files and creating `.dist` references only where operator review is actually required;
+- makes `X-Postfilter` reserved runtime metadata generated from the running Postfilter-NG version, so preserved configurations cannot advertise a stale release;
+- replaces the shipped configurable `X-Postfilter` entry with the site-local `X-Notice-1 = "A poorly unconfigured system, abandoned to themself"` example;
+- adds `reason_text` beside the stable `PF-*` reason code in final `article_result` logs;
+- adds the granular trusted-profile skip `style.control`, with a disabled local control-injector example that can authorize checkgroups/newgroup/rmgroup without granting `full_bypass`;
+- warns when source and installed paths overlap and prints the active configuration paths explicitly after candidate installation.
+
 ## 2026.08.1-rc1 — 2026-08-08
 
 - discovers `innconfval` from absolute entries in `PATH` after checking standard INN locations, while retaining explicit `--innconfval` precedence;

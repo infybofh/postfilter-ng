@@ -55,6 +55,7 @@ use Getopt::Long qw(GetOptions);
 use POSIX ();
 
 use Postfilter::InstallUpgrade qw(
+    configuration_matches_distribution
     migrate_legacy_path_files
     write_distribution_snapshot
 );
@@ -143,6 +144,7 @@ my $active_hook = "$option{filter_dir}/filter_nnrpd.pl";
 my $previous_hook = "$option{filter_dir}/filter_nnrpd.pl.previous";
 my $release_state_file = "$option{prefix}/release-state.json";
 my $legacy_manifest_file = "$option{prefix}/legacy-flat-manifest.json";
+my %preserved_configuration_file;
 
 if (!$keep_releases_was_overridden && -f $release_state_file) {
     my $saved_state = eval { _read_json_file($release_state_file) } || {};
@@ -152,6 +154,7 @@ if (!$keep_releases_was_overridden && -f $release_state_file) {
 }
 
 _print_plan();
+_warn_source_runtime_layout();
 
 die "--keep-releases must be at least 2 so one rollback release is retained\n"
     if $option{keep_releases} < 2;
@@ -748,7 +751,15 @@ sub _install_release_candidate {
     print "Candidate hook: $candidate_hook\n";
     print "Active hook was not modified: $active_hook\n";
     print "No cleanup was performed because the candidate is not active.\n";
-    print "Activate it with:\n";
+    print "\nRuntime paths:\n";
+    print "  Candidate release:            $release_directory\n";
+    print "  ACTIVE configuration file:    $option{config_dir}/postfilter.toml\n";
+    print "  ACTIVE configuration fragments: $option{config_dir}/conf.d/\n";
+    print "  Source examples (not loaded): $source_root/conf/\n";
+    print "Verify the effective configuration with:\n";
+    print "  $release_directory/bin/postfilterctl --config $option{config_dir}/postfilter.toml --state-dir $option{state_dir} install-paths\n";
+    print "  $release_directory/bin/postfilterctl --config $option{config_dir}/postfilter.toml --state-dir $option{state_dir} show-config\n";
+    print "\nActivate it with:\n";
     print "  perl installer/install-postfilter --activate-candidate";
     print " --html-dir $option{html_dir}" if defined $option{html_dir};
     print "\n";
@@ -1538,7 +1549,7 @@ package Postfilter::InstallPaths;
 use strict;
 use warnings;
 
-our \$VERSION = '2026.08.1-rc1';
+our \$VERSION = '$release_version';
 
 use constant CONFIG_FILE => $config_file;
 use constant STATE_DIR   => $state_directory;
@@ -1612,9 +1623,13 @@ sub _create_runtime_directories {
 # Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
 #                    rollback where applicable.
 sub _install_configuration_files {
+    my $previous_release = _active_managed_release_directory();
+
     my $main_installed = _install_config_file(
         "$source_root/conf/postfilter.toml",
         "$option{config_dir}/postfilter.toml",
+        $previous_release ? "$previous_release/conf/postfilter.toml" : '',
+        1,
     );
 
     for my $source (glob("$source_root/conf/conf.d/*.toml")) {
@@ -1622,6 +1637,8 @@ sub _install_configuration_files {
         _install_config_file(
             $source,
             "$option{config_dir}/conf.d/$name",
+            $previous_release ? "$previous_release/conf/conf.d/$name" : '',
+            1,
         );
     }
 
@@ -1630,40 +1647,85 @@ sub _install_configuration_files {
         _install_config_file(
             "$source_root/conf/$name",
             "$option{config_dir}/$name",
+            '',
+            0,
         );
     }
 
     _install_config_file(
         "$source_root/share/public_suffix_list.dat",
         "$option{config_dir}/public_suffix_list.dat",
+        '',
+        0,
     );
 
     if (-f "$source_root/share/static/report.css") {
         _install_config_file(
             "$source_root/share/static/report.css",
             "$option{config_dir}/report.css",
+            '',
+            0,
         );
     }
 
     return $main_installed;
 }
 
+# Function: _active_managed_release_directory
+# Purpose: Returns the currently active managed release directory for conservative config comparison.
+# Parameters: None.
+# Operational notes: Unknown/legacy hooks return an empty string, forcing preservation rather than guessing.
+sub _active_managed_release_directory {
+    return '' unless $option{upgrade};
+    return '' unless -f $active_hook || -l $active_hook;
+
+    my $active = parse_hook_wrapper($active_hook) or return '';
+    my ($safe, $marker) = release_dir_is_managed(
+        $option{prefix}, $active->{release_dir},
+    );
+    return '' unless $safe && $marker;
+    return '' unless ($marker->{version} // '') eq ($active->{version} // '');
+    return $safe;
+}
+
 # Function: _install_config_file
-# Purpose: Copies one configuration asset only when policy permits replacement.
-# Parameters: $source, $destination
-# Operational notes: Installer errors are fatal to the current phase and trigger code-prefix
-#                    rollback where applicable.
+# Purpose: Installs one configuration asset while preserving genuinely modified operator files.
+# Parameters: $source, $destination, optional $previous_source, optional $smart_compare.
+# Operational notes: TOML files are automatically refreshed only when they are byte-identical to
+#                    the path-adjusted copy shipped by the active previous release.  No semantic
+#                    merge is attempted.  Modified files are preserved and receive a fresh .dist.
 sub _install_config_file {
-    my ($source, $destination) = @_;
+    my ($source, $destination, $previous_source, $smart_compare) = @_;
 
     if (-e $destination && !$option{force_config}) {
-        print "Preserving existing configuration $destination\n";
+        if (
+            $smart_compare
+            && $previous_source
+            && configuration_matches_distribution(
+                installed    => $destination,
+                source       => $previous_source,
+                replacements => _legacy_path_replacements(),
+            )
+        ) {
+            write_distribution_snapshot(
+                source       => $source,
+                destination  => $destination,
+                replacements => _legacy_path_replacements(),
+            );
+            unlink "$destination.dist" if -f "$destination.dist";
+            print "Updated unmodified configuration $destination\n";
+            return 1;
+        }
+
+        $preserved_configuration_file{$destination} = 1 if $smart_compare;
+        print "Preserving locally modified configuration $destination\n";
         return 0;
     }
 
     copy($source, $destination)
         or die "Unable to copy $source to $destination: $!";
     chmod 0640, $destination;
+    unlink "$destination.dist" if -f "$destination.dist";
     return 1;
 }
 
@@ -1751,26 +1813,37 @@ sub _migrate_existing_configuration_paths {
 }
 
 # Function: _install_distribution_configuration_snapshots
-# Purpose: Installs current path-adjusted TOML examples beside preserved operator files as .dist.
+# Purpose: Installs path-adjusted .dist references only beside locally modified TOML files.
 # Parameters: None.
-# Operational notes: .dist files are not loaded by Postfilter-NG and are safe for manual comparison.
+# Operational notes: Untouched managed-release files are refreshed directly; .dist files are reserved for operator-modified TOML and are never loaded by Postfilter-NG.
 sub _install_distribution_configuration_snapshots {
-    write_distribution_snapshot(
-        source       => "$source_root/conf/postfilter.toml",
-        destination  => "$option{config_dir}/postfilter.toml.dist",
-        replacements => _legacy_path_replacements(),
-    );
+    my $written = 0;
+
+    my $main_destination = "$option{config_dir}/postfilter.toml";
+    if ($preserved_configuration_file{$main_destination}) {
+        write_distribution_snapshot(
+            source       => "$source_root/conf/postfilter.toml",
+            destination  => "$main_destination.dist",
+            replacements => _legacy_path_replacements(),
+        );
+        $written++;
+    }
 
     for my $source (sort glob("$source_root/conf/conf.d/*.toml")) {
         my ($name) = $source =~ m{/([^/]+)\z};
+        my $destination = "$option{config_dir}/conf.d/$name";
+        next unless $preserved_configuration_file{$destination};
         write_distribution_snapshot(
             source       => $source,
-            destination  => "$option{config_dir}/conf.d/$name.dist",
+            destination  => "$destination.dist",
             replacements => _legacy_path_replacements(),
         );
+        $written++;
     }
 
-    print "Installed current configuration references as *.dist files.\n";
+    print $written
+        ? "Installed $written .dist reference(s) for locally modified configuration files.\n"
+        : "No locally modified TOML configuration required .dist references.\n";
     return;
 }
 
@@ -2177,6 +2250,39 @@ sub _uninstall {
     print "SQLite state and saved articles were intentionally preserved.
 ";
     return;
+}
+
+# Function: _warn_source_runtime_layout
+# Purpose: Warns when installed configuration lives inside the unpacked source tree.
+# Parameters: None.
+# Operational notes: This layout is supported but can make conf/ examples easy to confuse with
+#                    the active config_dir tree, as observed during external testing.
+sub _warn_source_runtime_layout {
+    my $source = File::Spec->rel2abs($source_root);
+    my $config = File::Spec->rel2abs($option{config_dir});
+    my $prefix = File::Spec->rel2abs($option{prefix});
+
+    my $config_inside_source = _path_is_inside($config, $source);
+    my $prefix_is_source = $prefix eq $source;
+    return unless $config_inside_source || $prefix_is_source;
+
+    print "\nWARNING: source and installed paths overlap.\n";
+    print "  Source configuration examples (NOT loaded): $source_root/conf\n";
+    print "  ACTIVE configuration directory:             $option{config_dir}\n";
+    print "This layout is supported, but edit files under the ACTIVE directory.\n\n";
+    return;
+}
+
+# Function: _path_is_inside
+# Purpose: Performs a lexical absolute-path containment check without requiring the child to exist.
+# Parameters: $child, $parent
+# Operational notes: Used only for installer diagnostics, never as a security boundary.
+sub _path_is_inside {
+    my ($child, $parent) = @_;
+    return 1 if $child eq $parent;
+    my $relative = File::Spec->abs2rel($child, $parent);
+    return 0 if $relative eq File::Spec->updir;
+    return $relative !~ m{\A\.\.(?:[\\/]|\z)} ? 1 : 0;
 }
 
 # Function: _print_plan

@@ -33,7 +33,7 @@ SKIP: {
 my $config = base_config();
 $config->{policy}{mode} = 'audit';
 $config->{headers}{include_new_headers} = 1;
-$config->{new_headers}{'X-Postfilter'} = 'Postfilter-NG test';
+$config->{new_headers}{'X-Notice-Test'} = 'audit-finalization';
 $config->{distributions} = ['world'];
 my $context = build_context(
     config => $config,
@@ -48,7 +48,7 @@ my $context = build_context(
 );
 my $header_result = Postfilter::HeaderTransform->apply($context);
 ok($header_result->is_reject, 'invalid Distribution remains a technical rejection in audit mode');
-is($context->{headers}{'X-Postfilter'}, 'Postfilter-NG test', 'audit-accepted article still receives configured new headers');
+is($context->{headers}{'X-Notice-Test'}, 'audit-finalization', 'audit-accepted article still receives configured site-local new headers');
 
 # 3. Shipped configuration uses one canonical setting for each duplicated path
 # and no longer advertises obsolete X-Complaints-To or the retired SORBS DNSBL.

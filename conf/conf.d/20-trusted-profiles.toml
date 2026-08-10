@@ -51,6 +51,22 @@ skip_checks = [
 ]
 full_bypass = false
 
+
+# Disabled example for a local control-message injector.  Unlike full_bypass,
+# this skips only the Control/Also-Control restriction; all other structural,
+# content, reputation and rate checks remain active.
+[[trusted_profile]]
+id = "example-local-control-injector"
+enabled = false
+priority = 2900
+match_mode = "all"
+source_networks = ["127.0.0.1/32", "::1/128"]
+header_match = [
+  { name = "Control", pattern = '^(?:checkgroups|newgroup|rmgroup)\b' }
+]
+skip_checks = ["style.control"]
+full_bypass = false
+
 # Disabled example for a completely trusted local injector.  It remains
 # explicit and opt-in; enabling it bypasses even structural checks.
 [[trusted_profile]]

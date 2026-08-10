@@ -74,8 +74,8 @@ Rc6 installs code below a versioned directory:
 <prefix>/
 ├── releases/
 │   ├── legacy-2026.07.5-rc2/
-│   └── 2026.08.1-rc1/
-├── current  -> releases/2026.08.1-rc1
+│   └── 2026.08.1-rc2/
+├── current  -> releases/2026.08.1-rc2
 ├── previous -> releases/legacy-2026.07.5-rc2
 ├── release-state.json
 └── legacy-flat-manifest.json
@@ -118,7 +118,7 @@ The installer:
 A successful candidate installation ends with an explicit notice similar to:
 
 ```text
-Candidate installed and validated: 2026.08.1-rc1
+Candidate installed and validated: 2026.08.1-rc2
 Active hook was not modified.
 No cleanup was performed because the candidate is not active.
 ```
@@ -179,12 +179,20 @@ unchanged. Before changing operator files the installer creates:
 <config_dir>/upgrade-backups/YYYYMMDDTHHMMSSZ-<pid>/
 ```
 
-It also writes path-adjusted reference files that are not loaded automatically:
+For managed-release upgrades, an installed TOML file that is still byte-for-byte
+identical to the path-adjusted copy shipped by the active previous release is
+updated automatically.  No semantic TOML merge is attempted.
+
+If a file has any local modification, the operator copy is preserved and the
+installer writes a path-adjusted reference that is not loaded automatically:
 
 ```text
 postfilter.toml.dist
 conf.d/<fragment>.toml.dist
 ```
+
+Only locally modified TOML files receive `.dist` references.  This keeps the
+upgrade deterministic while reducing unnecessary manual merges.
 
 ## 8. Ownership and keys
 
@@ -331,7 +339,7 @@ available for a roll-forward.
 Failed candidate trees are preserved with names such as:
 
 ```text
-<prefix>/releases/.failed-2026.08.1-rc1-YYYYMMDDTHHMMSSZ-<pid>
+<prefix>/releases/.failed-2026.08.1-rc2-YYYYMMDDTHHMMSSZ-<pid>
 ```
 
 Legacy snapshot metadata is stored in:

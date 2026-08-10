@@ -25,6 +25,7 @@ C<yes>, never to plaintext and never to a predictable key.
 use Postfilter::Codes;
 use Postfilter::Result;
 use Postfilter::Util qw(hmac_id);
+use Postfilter::Version;
 
 # Function: apply
 # Purpose: Applies all explicitly enabled header transformations in a deterministic order.
@@ -81,7 +82,20 @@ sub apply {
     _add_tor_header($context) if $context->{tor};
 
     if ($header_config->{include_new_headers}) {
+        # X-Postfilter is runtime metadata, not site configuration.  Always
+        # derive it from the running code so preserved configuration cannot
+        # advertise an obsolete release after an upgrade.
+        $headers->{'X-Postfilter'} =
+            'Postfilter-NG ' . Postfilter::Version::version();
+        $context->{logger}->headers(
+            'header_added',
+            header => 'X-Postfilter',
+        );
+
         for my $name (keys %{ $config->{new_headers} // {} }) {
+            # Older preserved configurations may still contain X-Postfilter.
+            # Treat it as a reserved runtime header and ignore the stale value.
+            next if lc($name) eq 'x-postfilter';
             $headers->{$name} = $config->{new_headers}{$name};
             $context->{logger}->headers(
                 'header_added',

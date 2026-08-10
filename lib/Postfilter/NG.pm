@@ -61,8 +61,9 @@ use Postfilter::Logger;
 use Postfilter::PublicSuffix;
 use Postfilter::Result;
 use Postfilter::SavedArticle;
+use Postfilter::Version;
 
-our $VERSION = '2026.08.1-rc1';
+our $VERSION = $Postfilter::Version::VERSION;
 
 # Function: new
 # Purpose: Constructs one reusable per-nnrpd engine, loads configuration, dependencies, SQLite,
@@ -418,6 +419,7 @@ sub process_article {
             message_id  => $context->{message_id},
             pipeline_ms => sprintf('%.3f', $pipeline_elapsed_ms),
             reason      => $result->{code},
+            reason_text => $result->message,
             result      => $final->{nntp_result},
             saved       => $context->{saved_path} // '',
             technical   => $result->{verdict},

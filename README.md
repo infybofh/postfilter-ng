@@ -22,7 +22,7 @@ Postfilter-NG is a Perl posting filter for the INN `nnrpd` service. It validates
 articles before acceptance, applies text and binary policies, records searchable
 audit events in SQLite, and supports staged deployment through audit mode.
 
-> **Version:** `2026.08.1-rc1`  
+> **Version:** `2026.08.1-rc2`  
 > **Status:** **Release candidate**  
 > **Runtime:** [Perl](https://www.perl.org/) 5.38 or newer and
 > [INN](https://www.eyrie.org/~eagle/software/inn/) 2.x  
@@ -175,8 +175,10 @@ sudo perl installer/install-postfilter --upgrade
 
 The installer copies the exact legacy tree, including local modifications, into
 a managed rollback snapshot. It does not move or remove the active flat tree at
-this stage. Existing TOML files and keys are preserved; exact historical path
-defaults are migrated with timestamped backups and current `.dist` references.
+this stage. Existing keys are preserved.  Untouched TOML files from the active managed
+release are refreshed automatically; locally modified TOML files are preserved,
+with exact historical path defaults migrated through timestamped backups and a
+`.dist` reference supplied only for files requiring operator review.
 
 After testing the candidate and reviewing audit output, activate it with:
 
@@ -264,7 +266,7 @@ YYYY.MM.patch-stageN
 Examples:
 
 ```text
-2026.08.1-rc1
+2026.08.1-rc2
 2026.07.5
 ```
 

@@ -80,7 +80,9 @@ sub run {
     my $result;
 
     if ($headers_enabled) {
-        return $result if ($result = _check_control_headers($context));
+        return $result
+            if !$context->skip('style.control')
+            && ($result = _check_control_headers($context));
         return $result if ($result = _check_distribution_header($context));
         return $result
             if !$context->skip('style.content_type')

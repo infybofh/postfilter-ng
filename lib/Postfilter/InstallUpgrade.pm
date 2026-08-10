@@ -22,8 +22,9 @@ use File::Copy qw(copy);
 use File::Path qw(make_path);
 use File::Spec;
 
-our $VERSION = '2026.08.1-rc1';
+our $VERSION = '2026.08.1-rc2';
 our @EXPORT_OK = qw(
+    configuration_matches_distribution
     migrate_legacy_path_files
     write_distribution_snapshot
 );
@@ -96,6 +97,30 @@ sub migrate_legacy_path_files {
     };
 }
 
+
+# Function: configuration_matches_distribution
+# Purpose: Detects whether an installed configuration file is still byte-for-byte equivalent
+#          to the path-adjusted file shipped by a previous managed release.
+# Parameters: %arguments containing installed, source and replacements.
+# Operational notes: This is deliberately conservative: unreadable/missing files never match,
+#                    and no semantic TOML merge is attempted.
+sub configuration_matches_distribution {
+    my (%arguments) = @_;
+
+    my $installed = $arguments{installed};
+    my $source = $arguments{source};
+    my $replacements = $arguments{replacements} // [];
+
+    return 0 unless defined $installed && -f $installed;
+    return 0 unless defined $source && -f $source;
+    die "replacements must be an array reference\n"
+        unless ref($replacements) eq 'ARRAY';
+
+    my $installed_text = _read_file($installed);
+    my $distribution_text = _distribution_text($source, $replacements);
+    return $installed_text eq $distribution_text ? 1 : 0;
+}
+
 # Function: write_distribution_snapshot
 # Purpose: Writes one shipped configuration file as a path-adjusted .dist comparison copy.
 # Parameters: %arguments containing source, destination and replacements.
@@ -113,6 +138,22 @@ sub write_distribution_snapshot {
     die "replacements must be an array reference\n"
         unless ref($replacements) eq 'ARRAY';
 
+    my $text = _distribution_text($source, $replacements);
+
+    make_path(dirname($destination), { mode => 0750 });
+    _atomic_write_preserving_mode($destination, $text, 0640);
+    return;
+}
+
+
+# Function: _distribution_text
+# Purpose: Returns one shipped configuration file after applying exact path substitutions.
+# Parameters: $source, $replacements
+# Operational notes: Shared by comparison and .dist generation so both operations use identical
+#                    byte-level transformation rules.
+sub _distribution_text {
+    my ($source, $replacements) = @_;
+
     my $text = _read_file($source);
     for my $pair (@{$replacements}) {
         die "Each path replacement must contain old and new values\n"
@@ -123,10 +164,7 @@ sub write_distribution_snapshot {
         next if $old eq $new;
         $text =~ s{\Q$old\E(?=/|["']|\z)}{$new}g;
     }
-
-    make_path(dirname($destination), { mode => 0750 });
-    _atomic_write_preserving_mode($destination, $text, 0640);
-    return;
+    return $text;
 }
 
 # Function: _read_file

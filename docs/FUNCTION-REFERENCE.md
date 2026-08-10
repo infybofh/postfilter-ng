@@ -88,10 +88,11 @@ failure policy, concurrency, security implications and side effects.
 | `_rewrite_installed_shebangs` | Pins installed commands to the active Perl interpreter and sets mode `0755`. | `$directory, $interpreter` |
 | `_write_install_paths_module` | Generates release-local persistent configuration and state defaults. | `$path` |
 | `_create_runtime_directories` | Creates configuration, key, state, saved-article and report directories. | none |
-| `_install_configuration_files` / `_install_config_file` | Installs assets while preserving operator files unless forced. | source and destination paths |
+| `_install_configuration_files` / `_install_config_file` | Refreshes untouched managed TOML config while preserving locally modified operator files unless forced. | source, destination and previous-source paths |
+| `_active_managed_release_directory` | Resolves the active managed release used for safe byte-level config comparison. | none |
 | `_replace_default_paths` / `_legacy_path_replacements` | Rewrites only exact historical shipped paths to detected site-local paths. | `$path` / none |
 | `_migrate_existing_configuration_paths` | Backs up and migrates preserved TOML files. | none |
-| `_install_distribution_configuration_snapshots` | Writes current path-adjusted `.dist` references. | none |
+| `_install_distribution_configuration_snapshots` | Writes path-adjusted `.dist` references only for locally modified TOML files. | none |
 | `_configured_key_paths` / `_configured_saved_subdirectories` | Resolves effective key and diagnostic storage paths from merged configuration. | `$configuration_path` |
 | `_load_installer_configuration` / `_merge_configuration_hash` | Loads and merges main TOML plus active fragments. | configuration/hash arguments |
 | `_create_random_key` | Creates or validates one non-overwritten 64-byte key. | `$path, $purpose` |
@@ -99,6 +100,7 @@ failure policy, concurrency, security implications and side effects.
 | `_clear_perl_environment` / `_system_with_clean_perl_environment` | Prevents inherited Perl paths from shadowing release modules. | command arguments |
 | `_run_as_runtime_user` | Irreversibly drops to the configured INN account before validation. | `@command` |
 | `_uninstall` | Refuses to remove a prefix still used by the active hook and otherwise removes installer-managed code. | none |
+| `_warn_source_runtime_layout` / `_path_is_inside` | Warns when source and active configuration paths overlap and may be confused. | none / `$child, $parent` |
 | `_print_plan` / `_usage` | Prints resolved operation details and command syntax. | optional exit code |
 
 ## `lib/Postfilter/ReleaseManager.pm`
@@ -400,8 +402,10 @@ failure policy, concurrency, security implications and side effects.
 
 | Function | Purpose | Parameters |
 |---|---|---|
+| `configuration_matches_distribution` | Detects whether an installed config is still byte-identical to the path-adjusted file shipped by the previous release. | `%arguments` |
 | `migrate_legacy_path_files` | Replaces exact historical default paths in existing TOML files after backing them up. | `%arguments` |
 | `write_distribution_snapshot` | Writes one shipped configuration file as a path-adjusted `.dist` comparison copy. | `%arguments` |
+| `_distribution_text` | Produces the shared path-adjusted byte representation used for comparison and `.dist` generation. | `$source, $replacements` |
 | `_read_file` | Reads one file without character decoding. | `$path` |
 | `_atomic_write_preserving_mode` | Atomically replaces one file while retaining or explicitly setting its mode. | `$path, $text, optional $mode` |
 
