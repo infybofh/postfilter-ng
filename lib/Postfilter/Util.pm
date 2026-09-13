@@ -37,6 +37,9 @@ our @EXPORT_OK = qw(
     sha256_hexstr
     slurp
     split_groups
+    valid_followup_to
+    valid_newsgroup_list
+    valid_newsgroup_name
 );
 
 =head2 bool($value)
@@ -58,27 +61,96 @@ sub bool {
 
 =head2 split_groups($header_value)
 
-Splits a C<Newsgroups> or C<Followup-To> value on commas and whitespace,
-removes empty components and returns an array reference.  The function does
-not validate group names; structural validation is performed by the style
-checker so that a meaningful rejection code can be returned.
+Splits a syntactically checked C<Newsgroups> or C<Followup-To> list on commas,
+trims surrounding folding whitespace and returns the non-empty entries.  It
+deliberately does not treat bare whitespace as a separator: RFC 5536 requires
+commas between newsgroup names.  Raw header syntax is validated separately by
+C<valid_newsgroup_list> and C<valid_followup_to> before policy evaluation.
 
 =cut
 
 # Function: split_groups
-# Purpose: Splits a Newsgroups-style value into trimmed non-empty group names.
+# Purpose: Splits an RFC 5536 Newsgroups-style comma list into trimmed entries.
 # Parameters: $value
-# Operational notes: Failure behaviour is explicit in the function body and follows the caller’s
-#                    configured fail-open/fail-closed policy.
+# Operational notes: Does not convert malformed whitespace-separated names into a valid list.
 sub split_groups {
     my ($value) = @_;
     return [] unless defined $value && length $value;
 
     my @groups = grep { length $_ }
                  map  { s/^\s+|\s+$//gr }
-                 split /[,\s]+/, $value;
+                 split /,/, $value, -1;
 
     return \@groups;
+}
+
+=head2 valid_newsgroup_name($name)
+
+Returns true when C<$name> matches the RFC 5536 C<newsgroup-name> grammar:
+one or more non-empty components separated by dots, with each component made
+of ASCII letters, digits, C<+>, C<-> or C<_>.  The RFC recommendations about
+uppercase or all-numeric legacy components are not treated as syntax errors.
+
+=cut
+
+# Function: valid_newsgroup_name
+# Purpose: Validates one RFC 5536 newsgroup-name without applying site policy.
+# Parameters: $name
+# Operational notes: This is syntax validation only; existence is checked separately.
+sub valid_newsgroup_name {
+    my ($name) = @_;
+    return 0 unless defined $name && length $name;
+    return $name =~ /\A[A-Za-z0-9+_-]+(?:\.[A-Za-z0-9+_-]+)*\z/ ? 1 : 0;
+}
+
+=head2 valid_newsgroup_list($value)
+
+Validates the complete RFC 5536 C<newsgroup-list>.  Optional horizontal or
+folding whitespace is accepted around commas, but commas themselves are
+mandatory separators.
+
+=cut
+
+# Function: valid_newsgroup_list
+# Purpose: Validates raw Newsgroups/Followup-To list syntax before splitting it.
+# Parameters: $value
+# Operational notes: Empty elements, double dots, bare whitespace separators and punctuation
+#                    outside the RFC 5536 component alphabet are rejected.
+sub valid_newsgroup_list {
+    my ($value) = @_;
+    return 0 unless defined $value && length $value;
+
+    my $name = qr/[A-Za-z0-9+_-]+(?:\.[A-Za-z0-9+_-]+)*/;
+    my $fws  = qr/[ \t]*(?:\r?\n[ \t]+[ \t]*)?/;
+
+    return $value =~ /\A[ \t]*$name(?:$fws,$fws$name)*[ \t]*\z/ ? 1 : 0;
+}
+
+=head2 valid_followup_to($value)
+
+Validates C<Followup-To>.  It accepts the same list grammar as C<Newsgroups>
+and the RFC 5536 special value C<poster>.  Case-insensitive forms of C<poster>
+are accepted as explicitly permitted by the RFC.
+
+=cut
+
+# Function: valid_followup_to
+# Purpose: Validates RFC 5536 Followup-To syntax including the poster keyword.
+# Parameters: $value
+# Operational notes: The special poster value must stand alone.
+sub valid_followup_to {
+    my ($value) = @_;
+    return 0 unless defined $value && length $value;
+
+    my $trimmed = $value;
+    $trimmed =~ s/^[ \t]+|[ \t]+$//g;
+    return 1 if $trimmed =~ /\Aposter\z/i;
+    return 0 unless valid_newsgroup_list($value);
+
+    # "poster" is the complete special alternative in Followup-To, not a
+    # newsgroup name that may be mixed into a comma-separated list.
+    return 0 if grep { lc($_) eq 'poster' } @{ split_groups($value) };
+    return 1;
 }
 
 =head2 header_value($headers, $name)

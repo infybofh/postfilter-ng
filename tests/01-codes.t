@@ -13,7 +13,7 @@ use Postfilter::Codes;
 my $all = Postfilter::Codes->all;
 ok(ref($all) eq 'HASH', 'all codes returned as a hash');
 
-for my $numeric (0 .. 94, 104 .. 108) {
+for my $numeric (0 .. 116) {
     ok(exists $all->{$numeric}, "numeric code $numeric exists");
     like($all->{$numeric}{code}, qr/^PF-[A-Z]+-\d{3}$/, "code $numeric is symbolic");
     ok(length($all->{$numeric}{message}), "code $numeric has a message");

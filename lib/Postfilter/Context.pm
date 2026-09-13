@@ -29,6 +29,8 @@ use Postfilter::Util qw(
     normalize_email
     registered_domain
     split_groups
+    valid_followup_to
+    valid_newsgroup_list
 );
 
 # Function: new
@@ -63,6 +65,11 @@ sub new {
     ) {
         $client_ip = '127.0.0.1';
     }
+
+    my $newsgroups_syntax_valid = valid_newsgroup_list($headers->{Newsgroups});
+    my $followup_present = exists $headers->{'Followup-To'};
+    my $followup_syntax_valid = !$followup_present
+        || valid_followup_to($headers->{'Followup-To'});
 
     my $newsgroups = split_groups($headers->{Newsgroups});
     my $followups  = split_groups($headers->{'Followup-To'});
@@ -134,6 +141,8 @@ sub new {
         logger          => $arguments{logger},
         message_id      => $headers->{'Message-ID'} // '',
         newsgroups      => $newsgroups,
+        newsgroups_syntax_valid => $newsgroups_syntax_valid ? 1 : 0,
+        followup_syntax_valid   => $followup_syntax_valid ? 1 : 0,
         notes           => [],
         pid             => $$,
         processing_start => $arguments{processing_start} // $now,

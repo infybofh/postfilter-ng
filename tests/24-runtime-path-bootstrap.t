@@ -12,7 +12,7 @@ use File::Temp qw(tempdir);
 use Test::More;
 
 my $root = tempdir(CLEANUP => 1);
-my $release = File::Spec->catdir($root, 'prefix', 'releases', '2026.08.1-rc2');
+my $release = File::Spec->catdir($root, 'prefix', 'releases', '2026.09.1-rc1');
 my $bin = File::Spec->catdir($release, 'bin');
 my $lib = File::Spec->catdir($release, 'lib', 'Postfilter');
 make_path($bin, $lib, File::Spec->catdir($root, 'sbin'));

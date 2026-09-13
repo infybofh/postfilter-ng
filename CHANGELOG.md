@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026.09.1-rc1 — 2026-09-13
+
+- validates raw `Newsgroups` values against the RFC 5536 `newsgroup-list` grammar before classification, trusted-profile bypasses, group existence and crosspost policy;
+- rejects empty newsgroup-name components such as `alt..home.repair`, missing comma separators, empty list elements and invalid punctuation with `PF-GROUP-115`;
+- validates `Followup-To` with the same grammar plus the RFC-defined `poster` special value, returning `PF-GROUP-116` for malformed values;
+- stops `split_groups()` from silently interpreting bare whitespace as a group separator;
+- adds live-regression and adjacent-edge-case coverage for the malformed article reported from a 2026.08.1-rc2 deployment.
+
 ## 2026.08.1-rc2 — 2026-08-10
 
 - refreshes untouched managed-release TOML configuration automatically during upgrade while preserving locally modified files and creating `.dist` references only where operator review is actually required;

@@ -452,6 +452,15 @@ sub _run_pipeline {
         );
     }
 
+    # RFC 5536 syntax is an injection invariant, not a site policy.  Validate
+    # the raw group-list headers before article classification, trusted-profile
+    # bypasses, group existence checks or crosspost policy can reinterpret a
+    # malformed value.
+    return _create_rejection_result(115)
+        unless $context->{newsgroups_syntax_valid};
+    return _create_rejection_result(116)
+        unless $context->{followup_syntax_valid};
+
     # Mixed crossposts are rejected before trusted-profile processing.  A text
     # group must never inherit binary limits or binary payload permissions merely
     # because one alt.binaries.* group was added to Newsgroups.

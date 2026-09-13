@@ -82,6 +82,15 @@ accepts `paths.html_output` as a fallback for `html_report.output_file` and
 `keys.database_privacy` as a fallback for `database.privacy.key_file`. New
 configuration files should use only the canonical nested settings.
 
+### Newsgroups and Followup-To syntax
+
+Postfilter-NG validates the raw `Newsgroups` and `Followup-To` field bodies
+against RFC 5536 before article classification, trusted-profile bypasses, group
+existence checks or crosspost policy. Empty components such as
+`alt..home.repair`, missing comma separators, empty list elements and invalid
+punctuation are rejected. `Followup-To: poster` remains the RFC-defined special
+case and must stand alone.
+
 ## Regex strings
 
 Prefer literal TOML strings:

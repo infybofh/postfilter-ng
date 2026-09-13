@@ -22,7 +22,7 @@ Postfilter-NG is a Perl posting filter for the INN `nnrpd` service. It validates
 articles before acceptance, applies text and binary policies, records searchable
 audit events in SQLite, and supports staged deployment through audit mode.
 
-> **Version:** `2026.08.1-rc2`  
+> **Version:** `2026.09.1-rc1`  
 > **Status:** **Release candidate**  
 > **Runtime:** [Perl](https://www.perl.org/) 5.38 or newer and
 > [INN](https://www.eyrie.org/~eagle/software/inn/) 2.x  
@@ -266,7 +266,7 @@ YYYY.MM.patch-stageN
 Examples:
 
 ```text
-2026.08.1-rc2
+2026.09.1-rc1
 2026.07.5
 ```
 

@@ -117,6 +117,8 @@
 | 112 | `PF-BODY-112` | Probable Base64 attachment is forbidden in text groups |
 | 113 | `PF-MIME-113` | Malformed MIME structure in text article |
 | 114 | `PF-MIME-114` | Unapproved multipart container is forbidden in text groups |
+| 115 | `PF-GROUP-115` | Invalid Newsgroups syntax |
+| 116 | `PF-GROUP-116` | Invalid Followup-To syntax |
 
 ## Article-type codes
 

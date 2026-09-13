@@ -477,7 +477,10 @@ failure policy, concurrency, security implications and side effects.
 | Function | Purpose | Parameters |
 |---|---|---|
 | `bool` | Normalises Perl truth into numeric zero or one. | `$_[0] (the current object or value)` |
-| `split_groups` | Splits a Newsgroups-style value into trimmed non-empty group names. | `$value` |
+| `split_groups` | Splits an already validated Newsgroups-style comma list into trimmed entries without treating bare whitespace as a separator. | `$value` |
+| `valid_newsgroup_name` | Validates one RFC 5536 newsgroup-name component sequence. | `$name` |
+| `valid_newsgroup_list` | Validates complete RFC 5536 comma-separated Newsgroups syntax including optional FWS around commas. | `$value` |
+| `valid_followup_to` | Validates Followup-To as either an RFC 5536 newsgroup-list or the special `poster` value. | `$value` |
 | `header_value` | Returns a header value while tolerating canonical or lowercase keys. | `$headers, $name` |
 | `normalize_email` | Extracts and lowercases the mailbox portion of a From or Sender value. | `$value` |
 | `ip_in_cidr` | Tests an IPv4 or IPv6 address against a validated CIDR prefix using packed network bytes. | `$ip, $cidr` |

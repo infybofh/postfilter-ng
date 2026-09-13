@@ -15,7 +15,7 @@ older configuration file across an upgrade.
 
 =cut
 
-our $VERSION = '2026.08.1-rc2';
+our $VERSION = '2026.09.1-rc1';
 
 # Function: version
 # Purpose: Returns the release version used for runtime-generated metadata.
