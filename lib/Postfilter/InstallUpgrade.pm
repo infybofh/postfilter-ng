@@ -22,7 +22,7 @@ use File::Copy qw(copy);
 use File::Path qw(make_path);
 use File::Spec;
 
-our $VERSION = '2026.09.1-rc2';
+our $VERSION = '2026.09.1-rc3';
 our @EXPORT_OK = qw(
     configuration_matches_distribution
     migrate_legacy_path_files

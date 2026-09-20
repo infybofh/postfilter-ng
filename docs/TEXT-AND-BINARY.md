@@ -1,6 +1,6 @@
 # Text and binary article policies
 
-Postfilter-NG 2026.09.1-rc2 classifies articles before policy checks. A single
+Postfilter-NG 2026.09.1-rc3 classifies articles before policy checks. A single
 INN reader can apply independent limits and content rules to discussion traffic
 and multi-megabyte binary segments.
 

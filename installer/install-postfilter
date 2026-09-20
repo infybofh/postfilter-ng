@@ -1238,13 +1238,17 @@ sub _cleanup_installation {
 sub _resolve_inn_paths {
     return unless $option{use_innconfval};
 
+    # Prefer the administrator's PATH after an explicit --innconfval.  This
+    # matters on hosts with more than one INN installation: the innconfval
+    # selected by the shell should describe the installation being managed.
+    # _find_path_executable accepts only absolute PATH entries.
+    $option{innconfval} //= _find_path_executable('innconfval');
     $option{innconfval} //= _find_executable(
         '/usr/lib/news/bin/innconfval',
         '/usr/local/news/bin/innconfval',
         '/usr/local/libexec/news/innconfval',
         '/usr/local/bin/innconfval',
     );
-    $option{innconfval} //= _find_path_executable('innconfval');
     return unless $option{innconfval};
 
     $option{filter_dir} //= _inn_value($option{innconfval}, 'pathfilter');

@@ -45,9 +45,11 @@ sudo perl installer/install-postfilter --dry-run
 ```
 
 The installer applies explicit options first, then values returned by
-`innconfval`, then portable fallback paths. It checks common INN installation
-locations and then searches the current absolute `PATH` entries. If `sudo`
-sanitisises `PATH` and hides a custom INN tree, pass `--innconfval /full/path/innconfval`.
+`innconfval`, then portable fallback paths. After an explicit `--innconfval`, it
+searches absolute entries in the current `PATH` before trying common INN
+installation locations. This lets the administrator-selected INN installation
+win on hosts carrying more than one copy. If `sudo` sanitises `PATH` and hides a
+custom INN tree, pass `--innconfval /full/path/innconfval`.
 The plan prints the selected Perl
 interpreter, candidate release, configuration file, state directory, hook paths,
 retention count and all other installation paths before changing anything.
@@ -74,8 +76,8 @@ Rc6 installs code below a versioned directory:
 <prefix>/
 ├── releases/
 │   ├── legacy-2026.07.5-rc2/
-│   └── 2026.09.1-rc2/
-├── current  -> releases/2026.09.1-rc2
+│   └── 2026.09.1-rc3/
+├── current  -> releases/2026.09.1-rc3
 ├── previous -> releases/legacy-2026.07.5-rc2
 ├── release-state.json
 └── legacy-flat-manifest.json
@@ -118,7 +120,7 @@ The installer:
 A successful candidate installation ends with an explicit notice similar to:
 
 ```text
-Candidate installed and validated: 2026.09.1-rc2
+Candidate installed and validated: 2026.09.1-rc3
 Active hook was not modified.
 No cleanup was performed because the candidate is not active.
 ```
@@ -339,7 +341,7 @@ available for a roll-forward.
 Failed candidate trees are preserved with names such as:
 
 ```text
-<prefix>/releases/.failed-2026.09.1-rc2-YYYYMMDDTHHMMSSZ-<pid>
+<prefix>/releases/.failed-2026.09.1-rc3-YYYYMMDDTHHMMSSZ-<pid>
 ```
 
 Legacy snapshot metadata is stored in:

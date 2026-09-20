@@ -156,7 +156,11 @@ close $fh or die $!;
 chmod 0755, $fake or die $!;
 
 local $ENV{PATH} = "$bin:/usr/bin:/bin";
-my $command = "$^X installer/install-postfilter --dry-run --skip-dependency-check 2>&1";
+# Keep this regression isolated from any real Postfilter-NG installation on
+# the machine running the suite.  A release test must never depend on whether
+# /usr/local/lib/postfilter-ng already exists.
+my $test_prefix = "$tmp/postfilter-prefix";
+my $command = "$^X installer/install-postfilter --dry-run --skip-dependency-check --prefix $test_prefix 2>&1";
 my $output = qx{$command};
 is($? >> 8, 0, 'installer dry-run succeeds with innconfval found only through PATH') or diag $output;
 like($output, qr{config_dir\s+/home/news/etc/postfilter-ng}, 'PATH innconfval supplies pathetc');

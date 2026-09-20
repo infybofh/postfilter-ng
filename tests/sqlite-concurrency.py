@@ -8,6 +8,9 @@ build environment where the Perl DBI/DBD::SQLite modules are unavailable.
 Each worker opens its own connection, mirroring separate nnrpd processes.  Every
 article is inserted in a short BEGIN IMMEDIATE/COMMIT transaction.  The helper
 reports any SQLITE_BUSY/locked failures and verifies the exact final row count.
+The release suite deliberately invokes a moderate concurrency smoke profile;
+larger --workers/--articles-per-worker values are useful as host-specific soak
+tests but are not portable pass/fail criteria because storage latency varies.
 """
 
 from __future__ import annotations

@@ -24,7 +24,7 @@ use Postfilter::ReleaseManager qw(
 
 my $root = tempdir(CLEANUP => 1);
 my $prefix = File::Spec->catdir($root, 'prefix');
-my $release = File::Spec->catdir($prefix, 'releases', '2026.09.1-rc2');
+my $release = File::Spec->catdir($prefix, 'releases', '2026.09.1-rc3');
 my $lib = File::Spec->catdir($release, 'lib');
 make_path($lib);
 
@@ -40,25 +40,25 @@ close $entry_handle or die $!;
 
 write_release_marker(
     directory => $release,
-    version   => '2026.09.1-rc2',
+    version   => '2026.09.1-rc3',
     legacy    => 0,
 );
 my $marker = read_release_marker($release);
-is($marker->{version}, '2026.09.1-rc2', 'managed release marker records version');
+is($marker->{version}, '2026.09.1-rc3', 'managed release marker records version');
 ok(!$marker->{legacy}, 'normal release is not marked legacy');
 
 my $wrapper = File::Spec->catfile($root, 'filter_nnrpd.pl.ng');
 write_hook_wrapper(
     path        => $wrapper,
     release_dir => $release,
-    version     => '2026.09.1-rc2',
+    version     => '2026.09.1-rc3',
     perl        => abs_path($^X) // $^X,
 );
 ok(-f $wrapper && !-l $wrapper, 'candidate hook is a regular wrapper, not a symlink');
 is((stat($wrapper))[2] & 07777, 0644, 'wrapper is readable and does not depend on execute mode');
 
 my $metadata = parse_hook_wrapper($wrapper);
-is($metadata->{version}, '2026.09.1-rc2', 'wrapper metadata identifies release');
+is($metadata->{version}, '2026.09.1-rc3', 'wrapper metadata identifies release');
 is($metadata->{release_dir}, $release, 'wrapper is pinned to immutable release path');
 
 my $output = qx{"$^X" -e 'my \$f=shift; my \$r=do \$f; die \$@ if \$@; die \$! unless defined \$r; die "missing" unless defined &filter_post; print "ok\\n"' "$wrapper" 2>&1};
@@ -67,7 +67,7 @@ like($output, qr/^ok/m, 'wrapper exposes filter_post');
 
 my ($managed, $managed_marker) = release_dir_is_managed($prefix, $release);
 is($managed, abs_path($release), 'managed release remains below releases root');
-is($managed_marker->{version}, '2026.09.1-rc2', 'managed release marker is returned');
+is($managed_marker->{version}, '2026.09.1-rc3', 'managed release marker is returned');
 ok(!safe_release_directory($prefix, File::Spec->catdir($root, 'outside')), 'outside directory is rejected');
 
 my $installer = _slurp('installer/install-postfilter');

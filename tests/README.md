@@ -17,8 +17,8 @@ Test groups:
 - `15-comments-and-style.t` — function documentation and source formatting.
 - `16-article-types.t` — text-only/mixed classification, binary globs, codes
   95–102, independent limits, scoped rules and save policy.
-- `17-sqlite-concurrency.t` — sixteen SQLite writers and 1,600 event
-  transactions against migrations 001–004.
+- `17-sqlite-concurrency.t` — a portable multi-process SQLite WAL smoke test
+  against migrations 001–004.
 - `18-text-attachments.t` — MIME, Base64, PGP/GnuPG, malformed MIME, empty part
   headers, byte-preserving signed content and linear adversarial armour scans.
 - `19-live-deployment-regressions.t` — embedded-Perl hook loading, INN-compatible
@@ -33,8 +33,11 @@ Test groups:
   retired-provider cleanup.
 
 `sqlite-concurrency.py` uses Python's standard `sqlite3` module for WAL and
-schema stress. Repeat load testing through Perl DBI/DBD::SQLite on the target INN
-reader before production enforcement.
+schema stress. The mandatory suite uses a moderate profile so success does not
+depend on storage latency. For a host-specific soak test, run for example
+`python3 tests/sqlite-concurrency.py --workers 16 --articles-per-worker 100`.
+Repeat load testing through Perl DBI/DBD::SQLite on the target INN reader before
+production enforcement.
 
 Fixtures under `examples/minimal-reader`, `examples/mixed-reader` and
 `examples/text-mime-strict` distinguish raw client input, INN hook input, text

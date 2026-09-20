@@ -1,6 +1,13 @@
 # Changelog
 
-## 2026.09.1-rc2 — 2026-09-20
+## 2026.09.1-rc3 — 2026-09-20
+
+- Isolated the `innconfval` PATH regression test from pre-existing local installations.
+- Prefer an explicitly selected `innconfval`, then the executable selected by absolute PATH entries, before portable hard-coded fallback locations; this behaves correctly on hosts with multiple INN installations.
+- Made the mandatory SQLite concurrency test a portable WAL smoke test instead of a host-storage benchmark.  The standalone helper still supports larger worker/article counts for optional soak testing.
+
+
+## 2026.09.1-rc3 — 2026-09-20
 
 Urgent forbidden-group enforcement fix.
 
