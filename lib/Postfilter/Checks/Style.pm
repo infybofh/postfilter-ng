@@ -553,13 +553,20 @@ sub _check_forbidden_headers {
 sub _check_forbidden_groups {
     my ($context) = @_;
 
-    my $joined_groups = join ',',
-        @{ $context->{newsgroups} },
-        @{ $context->{followups} };
+    # forbidden_groups describes newsgroup names, not the serialized header
+    # value.  Match every Newsgroups and Followup-To target independently so
+    # anchored expressions (for example ^alt\.example$) still work when the
+    # forbidden group is one element of a crosspost or followup list.
+    my @groups = (
+        @{ $context->{newsgroups} // [] },
+        @{ $context->{followups}  // [] },
+    );
 
     for my $pattern (@{ $context->{config}{forbidden_groups} // [] }) {
-        return _reject(54, pattern => $pattern)
-            if $joined_groups =~ /$pattern/i;
+        for my $group (@groups) {
+            return _reject(54, pattern => $pattern, group => $group)
+                if $group =~ /$pattern/i;
+        }
     }
 
     return;

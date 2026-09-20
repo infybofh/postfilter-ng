@@ -35,6 +35,8 @@ html_patterns = [
   "<script\\b[^>]*>.*?</script>"
 ]
 
+# Closed-to-posting groups.  Each target is checked independently in both
+# Newsgroups: and Followup-To:, so anchored expressions remain safe in lists.
 forbidden_groups = [
   "\\.teen", "\\.pedo", "^alt\\.checkmate$", "^rec\\.arts\\.drwho$",
   "^alt\\.usenet\\.kooks$", "^alt\\.fan\\.rush-limbaugh$",

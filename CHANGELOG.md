@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026.09.1-rc2 — 2026-09-20
+
+Urgent forbidden-group enforcement fix.
+
+- Fixed `PF-GROUP-054` so every individual target in both `Newsgroups:` and
+  `Followup-To:` is checked against `forbidden_groups`.
+- Anchored patterns such as `^alt\.fan\.rush-limbaugh$` now work correctly
+  when the forbidden group is one element of a crosspost or followup list.
+- Added regression coverage for forbidden groups in first/later positions,
+  across both headers, plus unanchored patterns and allowed controls.
+
 ## 2026.09.1-rc1 — 2026-09-13
 
 - validates raw `Newsgroups` values against the RFC 5536 `newsgroup-list` grammar before classification, trusted-profile bypasses, group existence and crosspost policy;
