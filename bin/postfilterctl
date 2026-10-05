@@ -83,12 +83,36 @@ require Postfilter::Logger;
 require Postfilter::NG;
 require Postfilter::Report;
 require Postfilter::Codes;
+require Postfilter::CodeReference;
 require Postfilter::Util;
 Postfilter::Util->import(qw(atomic_write));
 
 # Commands that do not need to parse the active configuration are handled first.
 if ($command eq 'codes') {
     print JSON::PP->new->canonical->pretty->encode(Postfilter::Codes->all);
+    exit 0;
+}
+
+if ($command eq 'explain-code') {
+    my $query = shift @ARGV // die "Usage: postfilterctl explain-code PF-CATEGORY-NNN|NNN\n";
+    my $reference = Postfilter::CodeReference->resolve($query)
+        or die "Unknown Postfilter-NG code '$query'.\n";
+    if ($json_output) {
+        print JSON::PP->new->canonical->pretty->encode($reference);
+        exit 0;
+    }
+    print "Code:          $reference->{code}\n";
+    print "Legacy:        $reference->{legacy}\n";
+    print "Status:        $reference->{status}\n";
+    print "Message:       $reference->{message}\n";
+    print "Trigger:       $reference->{trigger}\n";
+    print "Configuration: $reference->{configuration}\n";
+    print "Source:\n";
+    if (@{ $reference->{call_sites} }) {
+        print "  $_->{file}:$_->{line} ($_->{function})\n" for @{ $reference->{call_sites} };
+    } else {
+        print "  no direct runtime call-site found in this release\n";
+    }
     exit 0;
 }
 
@@ -1079,7 +1103,8 @@ Configuration and rules:
   install-paths             show loaded module and runtime path defaults
   check-config
   show-config
-  codes
+  codes                    list the stable legacy/symbolic code map as JSON
+  explain-code CODE         explain one PF-* or numeric code, config and source call-sites
   rules
   rule-test RULE_ID ARTICLE_FILE
   migrate-old-config --output-dir DIR [--banlist FILE] [--badwords FILE]

@@ -287,7 +287,7 @@ sub process_article {
                 ($context->{config}{saved_articles}{on_failure} // 'continue')
                 eq 'reject'
             ) {
-                $result = _create_rejection_result(41);
+                $result = _create_rejection_result(41);  # PF-SAVE-041
                 $final = $self->_resolve_policy($context, $result);
             }
         }
@@ -321,7 +321,7 @@ sub process_article {
                 'local_distribution_store_failed=' . ($@ || 'unknown error');
 
             if ($failure_action eq 'reject') {
-                $result = _create_rejection_result(107);
+                $result = _create_rejection_result(107);  # PF-DB-107
                 $final = $self->_resolve_policy($context, $result);
             }
         }
@@ -441,7 +441,7 @@ sub _run_pipeline {
 
     my $config = $context->{config};
 
-    return _create_rejection_result(48)
+    return _create_rejection_result(48)  # PF-POLICY-048
         if $config->{policy}{server_status} eq 'closed';
 
     if ($config->{policy}{server_status} eq 'disabled') {
@@ -456,9 +456,9 @@ sub _run_pipeline {
     # the raw group-list headers before article classification, trusted-profile
     # bypasses, group existence checks or crosspost policy can reinterpret a
     # malformed value.
-    return _create_rejection_result(115)
+    return _create_rejection_result(115)  # PF-GROUP-115
         unless $context->{newsgroups_syntax_valid};
-    return _create_rejection_result(116)
+    return _create_rejection_result(116)  # PF-GROUP-116
         unless $context->{followup_syntax_valid};
 
     # Mixed crossposts are rejected before trusted-profile processing.  A text
@@ -468,7 +468,7 @@ sub _run_pipeline {
         $config->{article_types}{mixed_crosspost_policy}
         // 'reject';
 
-    return _create_rejection_result(95)
+    return _create_rejection_result(95)  # PF-GROUP-095
         if $context->{classification_mixed}
         && $mixed_crosspost_policy eq 'reject';
 
@@ -648,7 +648,7 @@ sub _run_custom_filter {
     }
 
     if ($custom_result =~ /^\d+$/) {
-        return _create_rejection_result(0 + $custom_result);
+        return _create_rejection_result(0 + $custom_result);  # PF-INTERNAL-000
     }
 
     return Postfilter::Result->reject(
@@ -741,7 +741,7 @@ sub _custom_error_result {
         // 'accept';
 
     if ($on_error eq 'reject') {
-        return _create_rejection_result(63);
+        return _create_rejection_result(63);  # PF-RULE-063
     }
 
     return Postfilter::Result->pass(

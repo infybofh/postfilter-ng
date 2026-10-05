@@ -93,17 +93,17 @@ sub run {
         return $result if ($result = _check_forbidden_crossposts($context));
         return $result if ($result = _check_approved_header($context));
 
-        return _reject(6, detail => 'group_count')
+        return _reject(6, detail => 'group_count')  # PF-GROUP-006
             if $context->{group_count} > $limits->{max_crosspost};
 
-        return _reject(7, detail => 'followup_count')
+        return _reject(7, detail => 'followup_count')  # PF-GROUP-007
             if $context->{followup_count} > $limits->{max_followup};
 
-        return _reject(8)
+        return _reject(8)  # PF-GROUP-008
             if $context->{group_count} > ($limits->{max_fup_no_crosspost} // 3)
             && $context->{followup_count} == 0;
 
-        return _reject(10)
+        return _reject(10)  # PF-GROUP-010
             if ($context->{followup_count} - $context->{group_count})
             > $limits->{max_groups_difference};
     }
@@ -119,7 +119,7 @@ sub run {
         && $context->{header_size} > $limits->{max_header_size};
 
     if ($headers_enabled) {
-        return _reject(11)
+        return _reject(11)  # PF-HEADER-011
             if ($headers->{Subject} // '') =~ /^Re:\s/i
             && !length($headers->{References} // '');
     }
@@ -128,19 +128,19 @@ sub run {
         my $line_statistics = $context->analyze_lines;
         my $line_count = $line_statistics->{lines} || 1;
 
-        return _reject(12)
+        return _reject(12)  # PF-BODY-012
             if ($limits->{max_line_length} // 0) > 0
             && $line_statistics->{max_length} > $limits->{max_line_length};
 
-        return _reject(13)
+        return _reject(13)  # PF-BODY-013
             if $line_statistics->{quoted}
             > $line_count * $limits->{max_quoted_ratio};
 
-        return _reject(14)
+        return _reject(14)  # PF-BODY-014
             if $line_statistics->{blank}
             > $line_count * $limits->{max_blank_ratio};
 
-        return _reject(15)
+        return _reject(15)  # PF-BODY-015
             if $line_statistics->{empty}
             > $line_count * $limits->{max_empty_ratio};
     }
@@ -152,11 +152,11 @@ sub run {
     if ($groups_enabled) {
         return $result if ($result = _check_group_existence($context));
 
-        return _reject(25)
+        return _reject(25)  # PF-GROUP-025
             if _count_hierarchies($context->{newsgroups})
             > $limits->{max_hierarchies_post};
 
-        return _reject(26)
+        return _reject(26)  # PF-GROUP-026
             if _count_hierarchies($context->{followups})
             > $limits->{max_hierarchies_followup};
 
@@ -169,7 +169,7 @@ sub run {
 
     if ($headers_enabled) {
         for my $header_name (keys %{$headers}) {
-            return _reject(21, header => $header_name)
+            return _reject(21, header => $header_name)  # PF-HEADER-021
                 if length($headers->{$header_name} // '')
                 > $limits->{max_header_length};
         }
@@ -178,12 +178,12 @@ sub run {
             for my $header_name (qw(
                 Received To Cc CC Bcc BCC Delivered-To Delivered-to
             )) {
-                return _reject(22, header => $header_name)
+                return _reject(22, header => $header_name)  # PF-HEADER-022
                     if length($headers->{$header_name} // '');
             }
         }
 
-        return _reject(24)
+        return _reject(24)  # PF-HEADER-024
             if length($headers->{References} // '')
             && length($headers->{'In-Reply-To'} // '')
             && index(
@@ -224,12 +224,12 @@ sub _check_control_headers {
         next unless length($headers->{$name} // '');
 
         my $is_cancel = $headers->{$name} =~ /^cancel\s+/i;
-        return _reject(1, header => $name)
+        return _reject(1, header => $name)  # PF-HEADER-001
             if !$is_cancel || !$header_config->{allow_control_cancel};
     }
 
     for my $name (qw(Supersedes Replaces Cancel)) {
-        return _reject(51, header => $name)
+        return _reject(51, header => $name)  # PF-HEADER-051
             if length($headers->{$name} // '')
             && !$header_config->{allow_supersedes};
     }
@@ -264,7 +264,7 @@ sub _check_forbidden_crossposts {
         next unless length($left) && length($right);
 
         if ($joined_groups =~ /$left/i && $joined_groups =~ /$right/i) {
-            return _reject(2, rule_id => $rule->{id});
+            return _reject(2, rule_id => $rule->{id});  # PF-GROUP-002
         }
     }
 
@@ -292,7 +292,7 @@ sub _check_approved_header {
         return if $groups =~ /$pattern/i;
     }
 
-    return _reject(3);
+    return _reject(3);  # PF-HEADER-003
 }
 
 =head2 _check_distribution_header($context)
@@ -318,7 +318,7 @@ sub _check_distribution_header {
     my %allowed = map { lc($_) => 1 }
         @{ $context->{config}{distributions} // [] };
 
-    return _reject(4, distribution => $distribution)
+    return _reject(4, distribution => $distribution)  # PF-GROUP-004
         unless $allowed{ lc $distribution };
 
     return;
@@ -364,7 +364,7 @@ sub _check_content_type {
         return if $content_type =~ /$allowed_pattern/i;
     }
 
-    return _reject(5, content_type => $content_type);
+    return _reject(5, content_type => $content_type);  # PF-MIME-005
 }
 
 =head2 _check_html($context)
@@ -391,7 +391,7 @@ sub _check_html {
 
     my $scan_body = $context->body_for_expensive_checks;
     for my $pattern (@{ $context->{config}{html_patterns} // [] }) {
-        return _reject(16, pattern => $pattern)
+        return _reject(16, pattern => $pattern)  # PF-BODY-016
             if $scan_body =~ /$pattern/is;
     }
 
@@ -416,14 +416,14 @@ sub _check_group_existence {
     return unless $context->{config}{headers}{check_groups_existence};
 
     my $path = $context->{config}{paths}{active_file};
-    return _reject(37) unless $path && -r $path;
+    return _reject(37) unless $path && -r $path;  # PF-GROUP-037
 
     my $mtime = (stat($path))[9] // 0;
     if (
         !$ACTIVE_CACHE{$path}
         || $ACTIVE_CACHE{$path}{mtime} != $mtime
     ) {
-        open my $handle, '<', $path or return _reject(37);
+        open my $handle, '<', $path or return _reject(37);  # PF-GROUP-037
 
         my %groups;
         while (my $line = <$handle>) {
@@ -441,13 +441,13 @@ sub _check_group_existence {
     my $known_groups = $ACTIVE_CACHE{$path}{groups};
 
     for my $group (@{ $context->{newsgroups} }) {
-        return _reject(17, group => $group)
+        return _reject(17, group => $group)  # PF-GROUP-017
             unless $known_groups->{$group};
     }
 
     for my $group (@{ $context->{followups} }) {
         next if $group eq 'poster' || $group eq 'junk';
-        return _reject(18, group => $group)
+        return _reject(18, group => $group)  # PF-GROUP-018
             unless $known_groups->{$group};
     }
 
@@ -473,7 +473,7 @@ sub _check_date {
     my ($context) = @_;
 
     my $value = $context->{headers}{Date} // '';
-    return _reject(19, reason => 'missing-date') unless length $value;
+    return _reject(19, reason => 'missing-date') unless length $value;  # PF-DATE-019
 
     my $loaded = eval { require Date::Parse; 1 };
     if (!$loaded) {
@@ -485,7 +485,7 @@ sub _check_date {
     }
 
     my $epoch = Date::Parse::str2time($value);
-    return _reject(19, reason => 'unparseable-date')
+    return _reject(19, reason => 'unparseable-date')  # PF-DATE-019
         unless defined $epoch;
 
     my $now = $context->{received_at};
@@ -496,10 +496,10 @@ sub _check_date {
         $context->{config}{timeouts}{too_old_seconds}
         // 259_200;
 
-    return _reject(19, difference => $epoch - $now)
+    return _reject(19, difference => $epoch - $now)  # PF-DATE-019
         if $epoch - $now > $future_grace;
 
-    return _reject(58, difference => $now - $epoch)
+    return _reject(58, difference => $now - $epoch)  # PF-DATE-058
         if $now - $epoch > $maximum_age;
 
     return;
@@ -564,7 +564,7 @@ sub _check_forbidden_groups {
 
     for my $pattern (@{ $context->{config}{forbidden_groups} // [] }) {
         for my $group (@groups) {
-            return _reject(54, pattern => $pattern, group => $group)
+            return _reject(54, pattern => $pattern, group => $group)  # PF-GROUP-054
                 if $group =~ /$pattern/i;
         }
     }
@@ -593,7 +593,7 @@ sub _check_path {
     my $path = $context->{headers}{Path} // '';
     return unless length $path;
 
-    return _reject(20)
+    return _reject(20)  # PF-HEADER-020
         if $path =~ /[\r\n\0]/
         || $path =~ /^\s+$/;
 

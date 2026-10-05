@@ -492,3 +492,13 @@ failure policy, concurrency, security implications and side effects.
 | `now_iso` | Formats the current UTC time as an ISO-8601 string. | `No positional parameters, or arguments are read directly by the command wrapper.` |
 
 **Documented production functions:** 292
+
+## `lib/Postfilter/CodeReference.pm`
+
+| Function | Purpose | Parameters |
+|---|---|---|
+| `project_root` | Resolves the exact source/installed release root used for source references. | none |
+| `resolve` | Resolves a numeric or symbolic PF-* code into message, policy hints and exact call-sites. | `$class, $query` |
+| `call_sites` | Scans production source files for emitters/mappings of one code and reports file, line and function. | `$class, $numeric, $symbolic` |
+| `all_references` | Returns reference metadata for every stable historical code. | `$class` |
+

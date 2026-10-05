@@ -74,6 +74,18 @@ The whole pipeline is constrained by the configured processing budget. DNS work
 has separate per-query and aggregate deadlines bounded by the remaining article
 budget.
 
+## Result-code traceability
+
+`Postfilter::Codes` owns the stable historical numeric and symbolic `PF-*` mappings.
+`Postfilter::CodeReference` adds operator/developer metadata and scans the exact
+release tree for runtime call-sites.  `perl bin/generate-error-codes` and
+`postfilterctl explain-code` use that same reference layer, so the shipped
+`docs/ERROR-CODES.md`, the CLI and the installed source locations stay aligned.
+
+Numeric compatibility codes are intentionally retained.  Grep-friendly symbolic
+comments beside numeric emitters make both `grep PF-GROUP-054` and legacy-number
+searches useful without changing runtime semantics.
+
 ## Ownership boundaries
 
 Configuration and keys are root-owned and readable by the INN group. SQLite,

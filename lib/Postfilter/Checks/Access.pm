@@ -31,40 +31,40 @@ use Postfilter::Util qw(ip_in_cidr);
 
 my %REJECTION_CODE = (
     IP => {
-        max_articles          => 31,
-        max_short_articles    => 70,
-        max_total_errors      => 64,
-        max_short_errors      => 67,
-        max_short_size        => 73,
-        max_total_size        => 76,
-        max_short_groups      => 79,
-        max_total_groups      => 82,
-        max_short_followups   => 85,
-        max_total_followups   => 88,
+        max_articles          => 31,  # PF-RATE-031
+        max_short_articles    => 70,  # PF-RATE-070
+        max_total_errors      => 64,  # PF-RATE-064
+        max_short_errors      => 67,  # PF-RATE-067
+        max_short_size        => 73,  # PF-RATE-073
+        max_total_size        => 76,  # PF-RATE-076
+        max_short_groups      => 79,  # PF-RATE-079
+        max_total_groups      => 82,  # PF-RATE-082
+        max_short_followups   => 85,  # PF-RATE-085
+        max_total_followups   => 88,  # PF-RATE-088
     },
     DN => {
-        max_articles          => 32,
-        max_short_articles    => 71,
-        max_total_errors      => 65,
-        max_short_errors      => 68,
-        max_short_size        => 74,
-        max_total_size        => 77,
-        max_short_groups      => 80,
-        max_total_groups      => 83,
-        max_short_followups   => 86,
-        max_total_followups   => 89,
+        max_articles          => 32,  # PF-RATE-032
+        max_short_articles    => 71,  # PF-RATE-071
+        max_total_errors      => 65,  # PF-RATE-065
+        max_short_errors      => 68,  # PF-RATE-068
+        max_short_size        => 74,  # PF-RATE-074
+        max_total_size        => 77,  # PF-RATE-077
+        max_short_groups      => 80,  # PF-RATE-080
+        max_total_groups      => 83,  # PF-RATE-083
+        max_short_followups   => 86,  # PF-RATE-086
+        max_total_followups   => 89,  # PF-RATE-089
     },
     ID => {
-        max_articles          => 33,
-        max_short_articles    => 72,
-        max_total_errors      => 66,
-        max_short_errors      => 69,
-        max_short_size        => 75,
-        max_total_size        => 78,
-        max_short_groups      => 81,
-        max_total_groups      => 84,
-        max_short_followups   => 87,
-        max_total_followups   => 90,
+        max_articles          => 33,  # PF-RATE-033
+        max_short_articles    => 72,  # PF-RATE-072
+        max_total_errors      => 66,  # PF-RATE-066
+        max_short_errors      => 69,  # PF-RATE-069
+        max_short_size        => 75,  # PF-RATE-075
+        max_total_size        => 78,  # PF-RATE-078
+        max_short_groups      => 81,  # PF-RATE-081
+        max_total_groups      => 84,  # PF-RATE-084
+        max_short_followups   => 87,  # PF-RATE-087
+        max_total_followups   => 90,  # PF-RATE-090
     },
 );
 
@@ -309,7 +309,7 @@ sub _database_failure_result {
     my ($context, $error) = @_;
 
     my $action = $context->{db}->handle_failure($error);
-    return _reject(40) if $action eq 'reject';
+    return _reject(40) if $action eq 'reject';  # PF-DB-040
 
     return Postfilter::Result->pass(
         code    => 'PF-RATE-000',

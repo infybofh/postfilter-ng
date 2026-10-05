@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.10.1 - 2026-10-05
+
+Stable release based on the widely tested 2026.09.1-rc3 line.
+
+- Expanded `docs/ERROR-CODES.md` into a generated operator/developer reference with exact release file:line call-sites, function names, configuration hints and active/reserved status.
+- Added `postfilterctl explain-code CODE` with both human-readable and `--json` output.
+- Added grep-friendly symbolic `PF-*` markers beside numeric runtime rejection sites and rate-limit mappings without changing historical numeric compatibility.
+- Added automated documentation/reference consistency tests so new or moved codes cannot silently leave stale documentation.
+- Refreshed stable-release documentation and version metadata.
+
 ## 2026.09.1-rc3 — 2026-09-20
 
 - Isolated the `innconfval` PATH regression test from pre-existing local installations.
@@ -7,7 +17,7 @@
 - Made the mandatory SQLite concurrency test a portable WAL smoke test instead of a host-storage benchmark.  The standalone helper still supports larger worker/article counts for optional soak testing.
 
 
-## 2026.09.1-rc3 — 2026-09-20
+## 2026.09.1-rc2 — 2026-09-20
 
 Urgent forbidden-group enforcement fix.
 

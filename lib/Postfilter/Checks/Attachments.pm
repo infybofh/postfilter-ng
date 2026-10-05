@@ -711,7 +711,7 @@ sub _detect_large_base64_block {
                 $minimum_lines,
                 $minimum_decoded_bytes,
             );
-            return _reject(112, %{$result}) if $result;
+            return _reject(112, %{$result}) if $result;  # PF-BODY-112
             ($run_lines, $encoded_characters) = (0, 0);
             next;
         }
@@ -723,7 +723,7 @@ sub _detect_large_base64_block {
                 $minimum_lines,
                 $minimum_decoded_bytes,
             );
-            return _reject(112, %{$result}) if $result;
+            return _reject(112, %{$result}) if $result;  # PF-BODY-112
             ($run_lines, $encoded_characters) = (0, 0);
             next;
         }
@@ -779,7 +779,7 @@ sub _detect_large_base64_block {
             $minimum_lines,
             $minimum_decoded_bytes,
         );
-        return _reject(112, %{$result}) if $result;
+        return _reject(112, %{$result}) if $result;  # PF-BODY-112
 
         ($run_lines, $encoded_characters) = (0, 0);
     }
@@ -790,7 +790,7 @@ sub _detect_large_base64_block {
         $minimum_lines,
         $minimum_decoded_bytes,
     );
-    return _reject(112, %{$result}) if $result;
+    return _reject(112, %{$result}) if $result;  # PF-BODY-112
 
     return;
 }
@@ -956,7 +956,7 @@ sub _malformed_result {
         return;
     }
 
-    return _reject(113, reason => $reason, %details);
+    return _reject(113, reason => $reason, %details);  # PF-MIME-113
 }
 
 # Function: _pass

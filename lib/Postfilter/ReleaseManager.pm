@@ -21,7 +21,7 @@ use File::Spec;
 use JSON::PP;
 use POSIX qw(strftime);
 
-our $VERSION = '2026.09.1-rc3';
+our $VERSION = '2026.10.1';
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(

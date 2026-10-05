@@ -611,14 +611,14 @@ sub size_rejection_code {
 
     my %code = (
         text => {
-            body   => 96,
-            header => 97,
-            total  => 98,
+            body   => 96,  # PF-BODY-096
+            header => 97,  # PF-HEADER-097
+            total  => 98,  # PF-BODY-098
         },
         binary => {
-            body   => 99,
-            header => 100,
-            total  => 101,
+            body   => 99,  # PF-BODY-099
+            header => 100,  # PF-HEADER-100
+            total  => 101,  # PF-BODY-101
         },
     );
 

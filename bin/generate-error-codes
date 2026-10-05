@@ -1,0 +1,52 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use utf8;
+use open qw(:std :encoding(UTF-8));
+BEGIN {
+    require Cwd; require File::Basename;
+    my $script = Cwd::abs_path(__FILE__) // __FILE__;
+    unshift @INC, File::Basename::dirname(File::Basename::dirname($script)) . '/lib';
+}
+use Postfilter::CodeReference;
+use Postfilter::Version;
+
+my $refs = Postfilter::CodeReference->all_references;
+print "# Postfilter-NG error and result code reference\n\n";
+print "Generated for Postfilter-NG `", Postfilter::Version::version(), "`.  Do not edit the generated tables by hand; regenerate them with `perl bin/generate-error-codes > docs/ERROR-CODES.md`.\n\n";
+print "Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for the same information on an installed release.  File:line references below refer to this exact release.\n\n";
+print "## Complete code index\n\n";
+print "| Legacy | Symbolic | Status | Default message | Configuration / policy | Primary source |\n";
+print "|---:|---|---|---|---|---|\n";
+for my $r (@$refs) {
+    my $src = @{$r->{call_sites}} ? join('<br>', map { "`$_->{file}:$_->{line}` (`$_->{function}`)" } @{$r->{call_sites}}) : '_No direct runtime call-site found_';
+    my $msg=$r->{message}; $msg =~ s/\|/\\|/g;
+    my $cfg=$r->{configuration}; $cfg =~ s/\|/\\|/g;
+    print "| $r->{legacy} | `$r->{code}` | $r->{status} | $msg | `$cfg` | $src |\n";
+}
+print "\n## Reading the table\n\n";
+print "`active` means at least one runtime call-site was found in this release.  `compatibility/reserved` means the historical code remains stable but no direct emitter was found by the release scanner.  This is not automatically an error: some codes are retained for compatibility or are produced indirectly.\n\n";
+
+my %by_category;
+my %by_config;
+for my $r (@$refs) {
+    my ($category) = $r->{code} =~ /^PF-([A-Z]+)-/;
+    push @{ $by_category{$category // 'OTHER'} }, $r->{code};
+    push @{ $by_config{$r->{configuration}} }, $r->{code};
+}
+print "## Index by category\n\n";
+for my $category (sort keys %by_category) {
+    print "- **$category:** ", join(', ', map { "`$_`" } @{ $by_category{$category} }), "\n";
+}
+print "\n## Index by configuration / policy\n\n";
+for my $config (sort keys %by_config) {
+    print "- `$config`: ", join(', ', map { "`$_`" } @{ $by_config{$config} }), "\n";
+}
+print "\n## Detailed active-code reference\n\n";
+for my $r (@$refs) {
+    next unless @{$r->{call_sites}};
+    print "### `$r->{code}` (legacy $r->{legacy})\n\n";
+    print "- **Meaning:** $r->{message}\n- **Trigger:** $r->{trigger}\n- **Configuration:** `$r->{configuration}`\n- **Source:**\n";
+    print "  - `$_->{file}:$_->{line}` — `$_->{function}()`\n" for @{$r->{call_sites}};
+    print "\n";
+}

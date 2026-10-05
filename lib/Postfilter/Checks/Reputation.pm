@@ -79,7 +79,7 @@ sub run_tor {
             'tor',
         );
 
-        return _reject(50, reason => 'provider-error')
+        return _reject(50, reason => 'provider-error')  # PF-TOR-050
             if $result->{policy_reject};
 
         $is_tor = 1 if $result->{listed};
@@ -90,7 +90,7 @@ sub run_tor {
     $context->{tor} = 1;
     my $action = $tor_config->{action} // 'mark';
 
-    return _reject(50) if $action eq 'reject';
+    return _reject(50) if $action eq 'reject';  # PF-TOR-050
     return _pass(
         'PF-TOR-001',
         $action eq 'mark' ? 'TOR client marked' : 'TOR client allowed',

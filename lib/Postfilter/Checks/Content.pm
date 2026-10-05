@@ -58,15 +58,15 @@ sub run_binary {
 
     if (!$allow_uuencode && $contains_uuencode) {
         return $context->{article_type} eq 'binary'
-            ? _reject(102, encoding => 'uuencode')
-            : _reject(52, encoding => 'uuencode');
+            ? _reject(102, encoding => 'uuencode')  # PF-BODY-102
+            : _reject(52, encoding => 'uuencode');  # PF-BODY-052
     }
 
     my $contains_yenc = $body =~ /(?:^|\n)=ybegin\s+[^\r\n]+/mi;
     if (!$allow_yenc && $contains_yenc) {
         return $context->{article_type} eq 'binary'
-            ? _reject(102, encoding => 'yenc')
-            : _reject(62, encoding => 'yenc');
+            ? _reject(102, encoding => 'yenc')  # PF-BODY-102
+            : _reject(62, encoding => 'yenc');  # PF-BODY-062
     }
 
     return Postfilter::Result->pass(
@@ -192,10 +192,10 @@ sub run_badwords {
         $config->{badwords}{max_body_score}
         // 0;
 
-    return _reject(28, score => $subject_score)
+    return _reject(28, score => $subject_score)  # PF-RULE-028
         if $subject_score > $maximum_subject_score;
 
-    return _reject(29, score => $body_score)
+    return _reject(29, score => $body_score)  # PF-RULE-029
         if $body_score > $maximum_body_score;
 
     return Postfilter::Result->pass(

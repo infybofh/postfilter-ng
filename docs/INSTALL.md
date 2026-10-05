@@ -2,11 +2,11 @@
 
 ## 1. Read before running
 
-Install the release candidate on a staging reader or keep `policy.mode = "audit"`
+Install a new release on a staging reader where practical, or keep `policy.mode = "audit"`
 until representative traffic has been reviewed. Back up the active INN hook,
 Postfilter configuration and INN configuration before the first migration.
 
-Postfilter-NG rc6 uses immutable release directories. Installing a candidate does
+Postfilter-NG uses immutable release directories (introduced in rc6). Installing a candidate does
 **not** replace the code used by the active `filter_nnrpd.pl`. Activation is a
 separate explicit operation.
 
@@ -76,8 +76,8 @@ Rc6 installs code below a versioned directory:
 <prefix>/
 ├── releases/
 │   ├── legacy-2026.07.5-rc2/
-│   └── 2026.09.1-rc3/
-├── current  -> releases/2026.09.1-rc3
+│   └── 2026.10.1/
+├── current  -> releases/2026.10.1
 ├── previous -> releases/legacy-2026.07.5-rc2
 ├── release-state.json
 └── legacy-flat-manifest.json
@@ -120,7 +120,7 @@ The installer:
 A successful candidate installation ends with an explicit notice similar to:
 
 ```text
-Candidate installed and validated: 2026.09.1-rc3
+Candidate installed and validated: 2026.10.1
 Active hook was not modified.
 No cleanup was performed because the candidate is not active.
 ```
@@ -341,7 +341,7 @@ available for a roll-forward.
 Failed candidate trees are preserved with names such as:
 
 ```text
-<prefix>/releases/.failed-2026.09.1-rc3-YYYYMMDDTHHMMSSZ-<pid>
+<prefix>/releases/.failed-2026.10.1-YYYYMMDDTHHMMSSZ-<pid>
 ```
 
 Legacy snapshot metadata is stored in:

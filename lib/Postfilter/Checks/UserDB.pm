@@ -45,7 +45,7 @@ sub run {
     }
 
     my $directory = $context->{config}{userdb}{directory} // '';
-    return _reject(105)
+    return _reject(105)  # PF-AUTH-105
         unless $directory && -d $directory;
 
     for my $group (@{ $context->{newsgroups} }) {
@@ -55,10 +55,10 @@ sub run {
         next unless -e $path;
 
         my $allowed_senders = _load_sender_file($path);
-        return _reject(105, file => $path) unless $allowed_senders;
+        return _reject(105, file => $path) unless $allowed_senders;  # PF-AUTH-105
 
         my $sender = lc($context->{from_address} // '');
-        return _reject(106, group => $group)
+        return _reject(106, group => $group)  # PF-AUTH-106
             unless $allowed_senders->{$sender};
     }
 
