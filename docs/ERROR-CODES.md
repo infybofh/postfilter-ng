@@ -8,7 +8,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 
 | Legacy | Symbolic | Status | Default message | Configuration / policy | Primary source |
 |---:|---|---|---|---|---|
-| 0 | `PF-INTERNAL-000` | active | Message successfully sent | `n/a` | `lib/Postfilter/Result.pm:68` (`code`)<br>`lib/Postfilter/SavedArticle.pm:77` (`save`)<br>`lib/Postfilter/NG.pm:687` (`_run_custom_filter`) |
+| 0 | `PF-INTERNAL-000` | active | Message successfully sent | `n/a` | `lib/Postfilter/NG.pm:687` (`_run_custom_filter`)<br>`lib/Postfilter/Result.pm:68` (`code`)<br>`lib/Postfilter/SavedArticle.pm:77` (`save`) |
 | 1 | `PF-HEADER-001` | active | Control messages are forbidden | `style.control` | `lib/Postfilter/Checks/Style.pm:227` (`_check_control_headers`) |
 | 2 | `PF-GROUP-002` | active | Forbidden crosspost | `conf.d/10-structural-rules.toml: forbidden_crosspost` | `lib/Postfilter/Checks/Style.pm:267` (`_check_forbidden_crossposts`) |
 | 3 | `PF-HEADER-003` | active | You cannot approve messages | `moderation/Approved policy` | `lib/Postfilter/Checks/Style.pm:295` (`_check_approved_header`) |
@@ -48,7 +48,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 | 37 | `PF-GROUP-037` | active | Unable to load active file | `paths.active_file` | `lib/Postfilter/Checks/Style.pm:419` (`_check_group_existence`)<br>`lib/Postfilter/Checks/Style.pm:426` (`_check_group_existence`) |
 | 38 | `PF-CONFIG-038` | compatibility/reserved | Unable to load badwords configuration | `conf.d/50-badwords.toml` | _No direct runtime call-site found_ |
 | 39 | `PF-CONFIG-039` | compatibility/reserved | Unable to load banlist configuration | `conf.d/60-banlist.toml` | _No direct runtime call-site found_ |
-| 40 | `PF-DB-040` | active | Unable to open persistent storage | `database.* / policy database failure action` | `lib/Postfilter/NG.pm:368` (`process_article`)<br>`lib/Postfilter/Checks/Access.pm:312` (`_database_failure_result`) |
+| 40 | `PF-DB-040` | active | Unable to open persistent storage | `database.* / policy database failure action` | `lib/Postfilter/Checks/Access.pm:312` (`_database_failure_result`)<br>`lib/Postfilter/NG.pm:368` (`process_article`) |
 | 41 | `PF-SAVE-041` | active | Unable to save article | `saved_articles.*` | `lib/Postfilter/NG.pm:291` (`process_article`) |
 | 42 | `PF-CONFIG-042` | compatibility/reserved | Unable to run innconfval | `installer --innconfval / PATH` | _No direct runtime call-site found_ |
 | 43 | `PF-CONFIG-043` | compatibility/reserved | Unable to load main configuration | `postfilter.toml / conf.d` | _No direct runtime call-site found_ |
@@ -60,7 +60,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 | 49 | `PF-RULE-049` | compatibility/reserved | Excessive score in banlist | `banlist.max_score` | _No direct runtime call-site found_ |
 | 50 | `PF-TOR-050` | active | TOR is forbidden | `tor.action / tor.*` | `lib/Postfilter/Checks/Reputation.pm:82` (`run_tor`)<br>`lib/Postfilter/Checks/Reputation.pm:93` (`run_tor`) |
 | 51 | `PF-HEADER-051` | active | Supersedes, Replaces and Cancel are forbidden | `style.control` | `lib/Postfilter/Checks/Style.pm:232` (`_check_control_headers`) |
-| 52 | `PF-BODY-052` | active | UUEncoded binaries are forbidden | `article_types.text.content.allow_uuencode` | `lib/Postfilter/Config.pm:1384` (`_apply_defaults`)<br>`lib/Postfilter/Checks/Content.pm:62` (`run_binary`) |
+| 52 | `PF-BODY-052` | active | UUEncoded binaries are forbidden | `article_types.text.content.allow_uuencode` | `lib/Postfilter/Checks/Content.pm:62` (`run_binary`)<br>`lib/Postfilter/Config.pm:1384` (`_apply_defaults`) |
 | 53 | `PF-HEADER-053` | compatibility/reserved | Forged system header | `forbidden_header_rule` | _No direct runtime call-site found_ |
 | 54 | `PF-GROUP-054` | active | Permanently closed group | `conf.d/10-structural-rules.toml: forbidden_groups` | `lib/Postfilter/Checks/Style.pm:567` (`_check_forbidden_groups`) |
 | 55 | `PF-INTERNAL-055` | compatibility/reserved | Unable to load internal module | `runtime module loading` | _No direct runtime call-site found_ |
@@ -70,7 +70,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 | 59 | `PF-CONFIG-059` | compatibility/reserved | Unable to read public suffix data | `paths.public_suffix_file` | _No direct runtime call-site found_ |
 | 60 | `PF-URIBL-060` | compatibility/reserved | Banned domain in body (SURBL) | `conf.d/40-reputation.toml: surbl` | _No direct runtime call-site found_ |
 | 61 | `PF-URIBL-061` | compatibility/reserved | Banned domain in body (URIBL) | `conf.d/40-reputation.toml: uribl` | _No direct runtime call-site found_ |
-| 62 | `PF-BODY-062` | active | yEnc contents are forbidden | `article_types.text.content.allow_yenc` | `lib/Postfilter/Config.pm:1385` (`_apply_defaults`)<br>`lib/Postfilter/Checks/Content.pm:69` (`run_binary`) |
+| 62 | `PF-BODY-062` | active | yEnc contents are forbidden | `article_types.text.content.allow_yenc` | `lib/Postfilter/Checks/Content.pm:69` (`run_binary`)<br>`lib/Postfilter/Config.pm:1385` (`_apply_defaults`) |
 | 63 | `PF-RULE-063` | active | Message rejected by a custom rule | `custom.* / conf/custom.pm` | `lib/Postfilter/NG.pm:691` (`_run_custom_filter`)<br>`lib/Postfilter/NG.pm:780` (`_custom_error_result`) |
 | 64 | `PF-RATE-064` | active | Too many errors for your IP | `access.*_limits.max_total_errors / access_profile.limits.max_total_errors` | `lib/Postfilter/Checks/Access.pm:36` (`<file scope>`) |
 | 65 | `PF-RATE-065` | active | Too many errors for your domain | `access.*_limits.max_total_errors / access_profile.limits.max_total_errors` | `lib/Postfilter/Checks/Access.pm:48` (`<file scope>`) |
@@ -118,15 +118,15 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 | 107 | `PF-DB-107` | active | Unable to store local Distribution state | `distributions / database.*` | `lib/Postfilter/NG.pm:325` (`process_article`) |
 | 108 | `PF-GROUP-108` | compatibility/reserved | Invalid Distribution value | `distributions / headers.check_distribution` | _No direct runtime call-site found_ |
 | 109 | `PF-MIME-109` | active | multipart/mixed is forbidden in text groups | `article_types.text.mime` | `lib/Postfilter/Config.pm:1386` (`_apply_defaults`) |
-| 110 | `PF-MIME-110` | active | MIME media type is forbidden in text groups | `article_types.text.mime.allowed_media_types / forbidden_media_types` | `lib/Postfilter/Config.pm:1387` (`_apply_defaults`)<br>`lib/Postfilter/Checks/Attachments.pm:158` (`top_level_content_type_is_managed`) |
+| 110 | `PF-MIME-110` | active | MIME media type is forbidden in text groups | `article_types.text.mime.allowed_media_types / forbidden_media_types` | `lib/Postfilter/Checks/Attachments.pm:158` (`top_level_content_type_is_managed`)<br>`lib/Postfilter/Config.pm:1387` (`_apply_defaults`) |
 | 111 | `PF-MIME-111` | active | MIME attachment metadata is forbidden in text groups | `article_types.text.mime` | `lib/Postfilter/Config.pm:1388` (`_apply_defaults`) |
-| 112 | `PF-BODY-112` | active | Probable Base64 attachment is forbidden in text groups | `article_types.text.mime Base64 thresholds` | `lib/Postfilter/Config.pm:1389` (`_apply_defaults`)<br>`lib/Postfilter/Checks/Attachments.pm:689` (`_estimated_decoded_bytes`)<br>`lib/Postfilter/Checks/Attachments.pm:714` (`_detect_large_base64_block`)<br>`lib/Postfilter/Checks/Attachments.pm:726` (`_detect_large_base64_block`)<br>`lib/Postfilter/Checks/Attachments.pm:782` (`_detect_large_base64_block`)<br>`lib/Postfilter/Checks/Attachments.pm:793` (`_detect_large_base64_block`) |
-| 113 | `PF-MIME-113` | active | Malformed MIME structure in text article | `article_types.text.mime.on_malformed` | `lib/Postfilter/Config.pm:1390` (`_apply_defaults`)<br>`lib/Postfilter/Checks/Attachments.pm:959` (`_malformed_result`) |
+| 112 | `PF-BODY-112` | active | Probable Base64 attachment is forbidden in text groups | `article_types.text.mime Base64 thresholds` | `lib/Postfilter/Checks/Attachments.pm:689` (`_estimated_decoded_bytes`)<br>`lib/Postfilter/Checks/Attachments.pm:714` (`_detect_large_base64_block`)<br>`lib/Postfilter/Checks/Attachments.pm:726` (`_detect_large_base64_block`)<br>`lib/Postfilter/Checks/Attachments.pm:782` (`_detect_large_base64_block`)<br>`lib/Postfilter/Checks/Attachments.pm:793` (`_detect_large_base64_block`)<br>`lib/Postfilter/Config.pm:1389` (`_apply_defaults`) |
+| 113 | `PF-MIME-113` | active | Malformed MIME structure in text article | `article_types.text.mime.on_malformed` | `lib/Postfilter/Checks/Attachments.pm:959` (`_malformed_result`)<br>`lib/Postfilter/Config.pm:1390` (`_apply_defaults`) |
 | 114 | `PF-MIME-114` | active | Unapproved multipart container is forbidden in text groups | `article_types.text.mime.allowed_multipart_types` | `lib/Postfilter/Config.pm:1391` (`_apply_defaults`) |
 | 115 | `PF-GROUP-115` | active | Invalid Newsgroups syntax | `Newsgroups structural preflight` | `lib/Postfilter/NG.pm:459` (`_run_pipeline`) |
 | 116 | `PF-GROUP-116` | active | Invalid Followup-To syntax | `Followup-To structural preflight` | `lib/Postfilter/NG.pm:461` (`_run_pipeline`) |
-| 117 | `PF-RFC-117` | active | Article violates RFC 5536 syntax | `RFC 5536 invariant preflight` | `lib/Postfilter/NG.pm:471` (`_run_pipeline`)<br>`lib/Postfilter/HeaderTransform.pm:218` (`_transform_injection_information`) |
-| 118 | `PF-RFC-118` | active | Header transformation produced invalid RFC 5536 output | `RFC 5536 post-transform invariant` | `lib/Postfilter/NG.pm:606` (`_run_pipeline`)<br>`lib/Postfilter/HeaderTransform.pm:238` (`_transform_injection_information`) |
+| 117 | `PF-RFC-117` | active | Article violates RFC 5536 syntax | `RFC 5536 invariant preflight` | `lib/Postfilter/HeaderTransform.pm:218` (`_transform_injection_information`)<br>`lib/Postfilter/NG.pm:471` (`_run_pipeline`) |
+| 118 | `PF-RFC-118` | active | Header transformation produced invalid RFC 5536 output | `RFC 5536 post-transform invariant` | `lib/Postfilter/HeaderTransform.pm:238` (`_transform_injection_information`)<br>`lib/Postfilter/NG.pm:606` (`_run_pipeline`) |
 
 ## Reading the table
 
@@ -251,9 +251,9 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** Compatibility/reserved code or internal condition
 - **Configuration:** `n/a`
 - **Source:**
+  - `lib/Postfilter/NG.pm:687` — `_run_custom_filter()`
   - `lib/Postfilter/Result.pm:68` — `code()`
   - `lib/Postfilter/SavedArticle.pm:77` — `save()`
-  - `lib/Postfilter/NG.pm:687` — `_run_custom_filter()`
 
 ### `PF-HEADER-001` (legacy 1)
 
@@ -504,8 +504,8 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** Persistent storage failure
 - **Configuration:** `database.* / policy database failure action`
 - **Source:**
-  - `lib/Postfilter/NG.pm:368` — `process_article()`
   - `lib/Postfilter/Checks/Access.pm:312` — `_database_failure_result()`
+  - `lib/Postfilter/NG.pm:368` — `process_article()`
 
 ### `PF-SAVE-041` (legacy 41)
 
@@ -546,8 +546,8 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** UUEncode text policy
 - **Configuration:** `article_types.text.content.allow_uuencode`
 - **Source:**
-  - `lib/Postfilter/Config.pm:1384` — `_apply_defaults()`
   - `lib/Postfilter/Checks/Content.pm:62` — `run_binary()`
+  - `lib/Postfilter/Config.pm:1384` — `_apply_defaults()`
 
 ### `PF-GROUP-054` (legacy 54)
 
@@ -571,8 +571,8 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** yEnc text policy
 - **Configuration:** `article_types.text.content.allow_yenc`
 - **Source:**
-  - `lib/Postfilter/Config.pm:1385` — `_apply_defaults()`
   - `lib/Postfilter/Checks/Content.pm:69` — `run_binary()`
+  - `lib/Postfilter/Config.pm:1385` — `_apply_defaults()`
 
 ### `PF-RULE-063` (legacy 63)
 
@@ -903,8 +903,8 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** MIME media policy
 - **Configuration:** `article_types.text.mime.allowed_media_types / forbidden_media_types`
 - **Source:**
-  - `lib/Postfilter/Config.pm:1387` — `_apply_defaults()`
   - `lib/Postfilter/Checks/Attachments.pm:158` — `top_level_content_type_is_managed()`
+  - `lib/Postfilter/Config.pm:1387` — `_apply_defaults()`
 
 ### `PF-MIME-111` (legacy 111)
 
@@ -920,12 +920,12 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** Probable Base64 attachment
 - **Configuration:** `article_types.text.mime Base64 thresholds`
 - **Source:**
-  - `lib/Postfilter/Config.pm:1389` — `_apply_defaults()`
   - `lib/Postfilter/Checks/Attachments.pm:689` — `_estimated_decoded_bytes()`
   - `lib/Postfilter/Checks/Attachments.pm:714` — `_detect_large_base64_block()`
   - `lib/Postfilter/Checks/Attachments.pm:726` — `_detect_large_base64_block()`
   - `lib/Postfilter/Checks/Attachments.pm:782` — `_detect_large_base64_block()`
   - `lib/Postfilter/Checks/Attachments.pm:793` — `_detect_large_base64_block()`
+  - `lib/Postfilter/Config.pm:1389` — `_apply_defaults()`
 
 ### `PF-MIME-113` (legacy 113)
 
@@ -933,8 +933,8 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** Malformed MIME policy
 - **Configuration:** `article_types.text.mime.on_malformed`
 - **Source:**
-  - `lib/Postfilter/Config.pm:1390` — `_apply_defaults()`
   - `lib/Postfilter/Checks/Attachments.pm:959` — `_malformed_result()`
+  - `lib/Postfilter/Config.pm:1390` — `_apply_defaults()`
 
 ### `PF-MIME-114` (legacy 114)
 
@@ -966,8 +966,8 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** RFC 5536 article/header syntax
 - **Configuration:** `RFC 5536 invariant preflight`
 - **Source:**
-  - `lib/Postfilter/NG.pm:471` — `_run_pipeline()`
   - `lib/Postfilter/HeaderTransform.pm:218` — `_transform_injection_information()`
+  - `lib/Postfilter/NG.pm:471` — `_run_pipeline()`
 
 ### `PF-RFC-118` (legacy 118)
 
@@ -975,6 +975,6 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** RFC 5536 transformation safety
 - **Configuration:** `RFC 5536 post-transform invariant`
 - **Source:**
-  - `lib/Postfilter/NG.pm:606` — `_run_pipeline()`
   - `lib/Postfilter/HeaderTransform.pm:238` — `_transform_injection_information()`
+  - `lib/Postfilter/NG.pm:606` — `_run_pipeline()`
 

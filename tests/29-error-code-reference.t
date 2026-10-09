@@ -54,6 +54,18 @@ local $/;
 my $committed = <$dfh>;
 close $dfh;
 is($generated, $committed, 'ERROR-CODES.md is exactly reproducible from the generator');
+
+# Reproducibility must not depend on Perl hash randomisation or filesystem
+# traversal order.  Run fresh processes with several hash seeds and require
+# byte-for-byte identical output every time.
+for my $seed (0 .. 4) {
+    local $ENV{PERL_HASH_SEED} = $seed;
+    local $ENV{PERL_PERTURB_KEYS} = 2;
+    my $repeat = `$^X bin/generate-error-codes`;
+    is($? >> 8, 0, "error-code generator succeeds with PERL_HASH_SEED=$seed");
+    is($repeat, $committed, "error-code reference is deterministic with PERL_HASH_SEED=$seed");
+}
+
 like($committed, qr/PF-RATE-084.*Access\.pm:\d+/s, 'generated documentation solves the PF-RATE-084 traceability case');
 
 done_testing;

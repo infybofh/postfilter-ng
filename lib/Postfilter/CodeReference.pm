@@ -175,6 +175,11 @@ sub call_sites {
         push @files, [$File::Find::name, $relative];
     }, $root);
 
+    # File::Find intentionally does not guarantee traversal order.  Sort the
+    # candidate list before scanning so generated documentation and CLI output
+    # do not depend on filesystem/readdir ordering.
+    @files = sort { $a->[1] cmp $b->[1] } @files;
+
     my @sites;
     for my $pair (@files) {
         my ($path, $relative) = @$pair;
@@ -191,6 +196,15 @@ sub call_sites {
         }
         close $fh;
     }
+    # Keep call-site ordering deterministic even if discovery order changes in
+    # a future scanner implementation.  The generated ERROR-CODES.md is part
+    # of the release artifact and must be reproducible byte-for-byte.
+    @sites = sort {
+           $a->{file} cmp $b->{file}
+        || $a->{line} <=> $b->{line}
+        || $a->{function} cmp $b->{function}
+    } @sites;
+
     my %seen;
     return [ grep { !$seen{join(':', $_->{file}, $_->{line})}++ } @sites ];
 }

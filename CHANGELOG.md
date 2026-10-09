@@ -4,6 +4,9 @@
 
 RFC conformance hardening release following a public `Injection-Info` report.
 
+- Made error-code call-site discovery deterministic so `docs/ERROR-CODES.md` is reproducible byte-for-byte across filesystems and Perl hash seeds.
+- Added regression coverage for repeated error-code documentation generation under different `PERL_HASH_SEED` values.
+
 - Fixed the RFC 5536 `Injection-Info` serializer so it never emits an empty trailing `;` parameter.
 - Replaced naive semicolon splitting with quote/comment-aware parsing that preserves semicolons, equals signs and escaped characters inside parameter values; duplicate standard parameters and non-`x-` private attributes are rejected.
 - Added non-bypassable RFC syntax invariants before policy/trusted-profile processing and after header transformations (`PF-RFC-117` / `PF-RFC-118`).
