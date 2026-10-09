@@ -8,7 +8,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 
 | Legacy | Symbolic | Status | Default message | Configuration / policy | Primary source |
 |---:|---|---|---|---|---|
-| 0 | `PF-INTERNAL-000` | active | Message successfully sent | `n/a` | `lib/Postfilter/NG.pm:687` (`_run_custom_filter`)<br>`lib/Postfilter/Result.pm:68` (`code`)<br>`lib/Postfilter/SavedArticle.pm:77` (`save`) |
+| 0 | `PF-INTERNAL-000` | active | Message successfully sent | `n/a` | `lib/Postfilter/NG.pm:691` (`_run_custom_filter`)<br>`lib/Postfilter/Result.pm:68` (`code`)<br>`lib/Postfilter/SavedArticle.pm:77` (`save`) |
 | 1 | `PF-HEADER-001` | active | Control messages are forbidden | `style.control` | `lib/Postfilter/Checks/Style.pm:227` (`_check_control_headers`) |
 | 2 | `PF-GROUP-002` | active | Forbidden crosspost | `conf.d/10-structural-rules.toml: forbidden_crosspost` | `lib/Postfilter/Checks/Style.pm:267` (`_check_forbidden_crossposts`) |
 | 3 | `PF-HEADER-003` | active | You cannot approve messages | `moderation/Approved policy` | `lib/Postfilter/Checks/Style.pm:295` (`_check_approved_header`) |
@@ -56,7 +56,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 | 45 | `PF-DB-045` | compatibility/reserved | Database expiry error | `retention.* / maintenance` | _No direct runtime call-site found_ |
 | 46 | `PF-DB-046` | compatibility/reserved | Database spool error | `database.*` | _No direct runtime call-site found_ |
 | 47 | `PF-POLICY-047` | compatibility/reserved | Default action set to rejection | `policy.action_on_reject` | _No direct runtime call-site found_ |
-| 48 | `PF-POLICY-048` | active | Server closed for posting | `posting policy` | `lib/Postfilter/NG.pm:445` (`_run_pipeline`) |
+| 48 | `PF-POLICY-048` | active | Server closed for posting | `posting policy` | `lib/Postfilter/NG.pm:447` (`_run_pipeline`) |
 | 49 | `PF-RULE-049` | compatibility/reserved | Excessive score in banlist | `banlist.max_score` | _No direct runtime call-site found_ |
 | 50 | `PF-TOR-050` | active | TOR is forbidden | `tor.action / tor.*` | `lib/Postfilter/Checks/Reputation.pm:82` (`run_tor`)<br>`lib/Postfilter/Checks/Reputation.pm:93` (`run_tor`) |
 | 51 | `PF-HEADER-051` | active | Supersedes, Replaces and Cancel are forbidden | `style.control` | `lib/Postfilter/Checks/Style.pm:232` (`_check_control_headers`) |
@@ -71,7 +71,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 | 60 | `PF-URIBL-060` | compatibility/reserved | Banned domain in body (SURBL) | `conf.d/40-reputation.toml: surbl` | _No direct runtime call-site found_ |
 | 61 | `PF-URIBL-061` | compatibility/reserved | Banned domain in body (URIBL) | `conf.d/40-reputation.toml: uribl` | _No direct runtime call-site found_ |
 | 62 | `PF-BODY-062` | active | yEnc contents are forbidden | `article_types.text.content.allow_yenc` | `lib/Postfilter/Checks/Content.pm:69` (`run_binary`)<br>`lib/Postfilter/Config.pm:1385` (`_apply_defaults`) |
-| 63 | `PF-RULE-063` | active | Message rejected by a custom rule | `custom.* / conf/custom.pm` | `lib/Postfilter/NG.pm:691` (`_run_custom_filter`)<br>`lib/Postfilter/NG.pm:780` (`_custom_error_result`) |
+| 63 | `PF-RULE-063` | active | Message rejected by a custom rule | `custom.* / conf/custom.pm` | `lib/Postfilter/NG.pm:695` (`_run_custom_filter`)<br>`lib/Postfilter/NG.pm:784` (`_custom_error_result`) |
 | 64 | `PF-RATE-064` | active | Too many errors for your IP | `access.*_limits.max_total_errors / access_profile.limits.max_total_errors` | `lib/Postfilter/Checks/Access.pm:36` (`<file scope>`) |
 | 65 | `PF-RATE-065` | active | Too many errors for your domain | `access.*_limits.max_total_errors / access_profile.limits.max_total_errors` | `lib/Postfilter/Checks/Access.pm:48` (`<file scope>`) |
 | 66 | `PF-RATE-066` | active | Too many errors for your userid | `access.*_limits.max_total_errors / access_profile.limits.max_total_errors` | `lib/Postfilter/Checks/Access.pm:60` (`<file scope>`) |
@@ -103,7 +103,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 | 92 | `PF-CONFIG-092` | compatibility/reserved | Syntax error in main configuration | `postfilter.toml` | _No direct runtime call-site found_ |
 | 93 | `PF-CONFIG-093` | compatibility/reserved | Syntax error in access configuration | `conf.d/30-access-profiles.toml` | _No direct runtime call-site found_ |
 | 94 | `PF-CONFIG-094` | compatibility/reserved | Syntax error in rules configuration | `conf.d rule files` | _No direct runtime call-site found_ |
-| 95 | `PF-GROUP-095` | active | Crossposting between text and binary groups is forbidden | `article_types.mixed_crosspost_policy` | `lib/Postfilter/NG.pm:486` (`_run_pipeline`) |
+| 95 | `PF-GROUP-095` | active | Crossposting between text and binary groups is forbidden | `article_types.mixed_crosspost_policy` | `lib/Postfilter/NG.pm:489` (`_run_pipeline`) |
 | 96 | `PF-BODY-096` | active | Text article body exceeds the configured text limit | `article_types.text.limits.max_body_size` | `lib/Postfilter/Context.pm:614` (`size_rejection_code`) |
 | 97 | `PF-HEADER-097` | active | Text article headers exceed the configured text limit | `article_types.text.limits.max_header_size` | `lib/Postfilter/Context.pm:615` (`size_rejection_code`) |
 | 98 | `PF-BODY-098` | active | Text article total size exceeds the configured text limit | `article_types.text.limits.max_total_size` | `lib/Postfilter/Context.pm:616` (`size_rejection_code`) |
@@ -123,10 +123,10 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 | 112 | `PF-BODY-112` | active | Probable Base64 attachment is forbidden in text groups | `article_types.text.mime Base64 thresholds` | `lib/Postfilter/Checks/Attachments.pm:689` (`_estimated_decoded_bytes`)<br>`lib/Postfilter/Checks/Attachments.pm:714` (`_detect_large_base64_block`)<br>`lib/Postfilter/Checks/Attachments.pm:726` (`_detect_large_base64_block`)<br>`lib/Postfilter/Checks/Attachments.pm:782` (`_detect_large_base64_block`)<br>`lib/Postfilter/Checks/Attachments.pm:793` (`_detect_large_base64_block`)<br>`lib/Postfilter/Config.pm:1389` (`_apply_defaults`) |
 | 113 | `PF-MIME-113` | active | Malformed MIME structure in text article | `article_types.text.mime.on_malformed` | `lib/Postfilter/Checks/Attachments.pm:959` (`_malformed_result`)<br>`lib/Postfilter/Config.pm:1390` (`_apply_defaults`) |
 | 114 | `PF-MIME-114` | active | Unapproved multipart container is forbidden in text groups | `article_types.text.mime.allowed_multipart_types` | `lib/Postfilter/Config.pm:1391` (`_apply_defaults`) |
-| 115 | `PF-GROUP-115` | active | Invalid Newsgroups syntax | `Newsgroups structural preflight` | `lib/Postfilter/NG.pm:459` (`_run_pipeline`) |
-| 116 | `PF-GROUP-116` | active | Invalid Followup-To syntax | `Followup-To structural preflight` | `lib/Postfilter/NG.pm:461` (`_run_pipeline`) |
-| 117 | `PF-RFC-117` | active | Article violates RFC 5536 syntax | `RFC 5536 invariant preflight` | `lib/Postfilter/HeaderTransform.pm:218` (`_transform_injection_information`)<br>`lib/Postfilter/NG.pm:471` (`_run_pipeline`) |
-| 118 | `PF-RFC-118` | active | Header transformation produced invalid RFC 5536 output | `RFC 5536 post-transform invariant` | `lib/Postfilter/HeaderTransform.pm:238` (`_transform_injection_information`)<br>`lib/Postfilter/NG.pm:606` (`_run_pipeline`) |
+| 115 | `PF-GROUP-115` | active | Invalid Newsgroups syntax | `Newsgroups structural preflight` | `lib/Postfilter/NG.pm:461` (`_run_pipeline`) |
+| 116 | `PF-GROUP-116` | active | Invalid Followup-To syntax | `Followup-To structural preflight` | `lib/Postfilter/NG.pm:463` (`_run_pipeline`) |
+| 117 | `PF-RFC-117` | active | Article violates RFC 5536 syntax | `RFC 5536 invariant preflight` | `lib/Postfilter/HeaderTransform.pm:218` (`_transform_injection_information`)<br>`lib/Postfilter/NG.pm:474` (`_run_pipeline`) |
+| 118 | `PF-RFC-118` | active | Header transformation produced invalid RFC 5536 output | `RFC 5536 post-transform invariant` | `lib/Postfilter/HeaderTransform.pm:238` (`_transform_injection_information`)<br>`lib/Postfilter/NG.pm:610` (`_run_pipeline`) |
 
 ## Reading the table
 
@@ -251,7 +251,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** Compatibility/reserved code or internal condition
 - **Configuration:** `n/a`
 - **Source:**
-  - `lib/Postfilter/NG.pm:687` — `_run_custom_filter()`
+  - `lib/Postfilter/NG.pm:691` — `_run_custom_filter()`
   - `lib/Postfilter/Result.pm:68` — `code()`
   - `lib/Postfilter/SavedArticle.pm:77` — `save()`
 
@@ -521,7 +521,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** Server closed for posting
 - **Configuration:** `posting policy`
 - **Source:**
-  - `lib/Postfilter/NG.pm:445` — `_run_pipeline()`
+  - `lib/Postfilter/NG.pm:447` — `_run_pipeline()`
 
 ### `PF-TOR-050` (legacy 50)
 
@@ -580,8 +580,8 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** Custom rule rejection
 - **Configuration:** `custom.* / conf/custom.pm`
 - **Source:**
-  - `lib/Postfilter/NG.pm:691` — `_run_custom_filter()`
-  - `lib/Postfilter/NG.pm:780` — `_custom_error_result()`
+  - `lib/Postfilter/NG.pm:695` — `_run_custom_filter()`
+  - `lib/Postfilter/NG.pm:784` — `_custom_error_result()`
 
 ### `PF-RATE-064` (legacy 64)
 
@@ -805,7 +805,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** Text/binary mixed crosspost invariant
 - **Configuration:** `article_types.mixed_crosspost_policy`
 - **Source:**
-  - `lib/Postfilter/NG.pm:486` — `_run_pipeline()`
+  - `lib/Postfilter/NG.pm:489` — `_run_pipeline()`
 
 ### `PF-BODY-096` (legacy 96)
 
@@ -950,7 +950,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** RFC 5536 Newsgroups syntax
 - **Configuration:** `Newsgroups structural preflight`
 - **Source:**
-  - `lib/Postfilter/NG.pm:459` — `_run_pipeline()`
+  - `lib/Postfilter/NG.pm:461` — `_run_pipeline()`
 
 ### `PF-GROUP-116` (legacy 116)
 
@@ -958,7 +958,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Trigger:** RFC 5536 Followup-To syntax
 - **Configuration:** `Followup-To structural preflight`
 - **Source:**
-  - `lib/Postfilter/NG.pm:461` — `_run_pipeline()`
+  - `lib/Postfilter/NG.pm:463` — `_run_pipeline()`
 
 ### `PF-RFC-117` (legacy 117)
 
@@ -967,7 +967,7 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Configuration:** `RFC 5536 invariant preflight`
 - **Source:**
   - `lib/Postfilter/HeaderTransform.pm:218` — `_transform_injection_information()`
-  - `lib/Postfilter/NG.pm:471` — `_run_pipeline()`
+  - `lib/Postfilter/NG.pm:474` — `_run_pipeline()`
 
 ### `PF-RFC-118` (legacy 118)
 
@@ -976,5 +976,5 @@ Use `postfilterctl explain-code PF-RATE-084` (or the numeric legacy code) for th
 - **Configuration:** `RFC 5536 post-transform invariant`
 - **Source:**
   - `lib/Postfilter/HeaderTransform.pm:238` — `_transform_injection_information()`
-  - `lib/Postfilter/NG.pm:606` — `_run_pipeline()`
+  - `lib/Postfilter/NG.pm:610` — `_run_pipeline()`
 

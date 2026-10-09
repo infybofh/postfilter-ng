@@ -4,8 +4,14 @@
 
 RFC conformance hardening release following a public `Injection-Info` report.
 
+- Fixed false `PF-RFC-117` rejections on the temporary `.POSTED[.source]!…` Path form that INN `nnrpd` constructs before calling the Perl `filter_post` hook; this staging form is accepted only in hook mode and must still become a normal RFC 5536 Path after `innd` prepends its path-identity.
+- Added regression coverage for the exact paganini staging/final Path pair plus the complex RFC 5537 Section 3.2.2 Path example.
+
 - Made error-code call-site discovery deterministic so `docs/ERROR-CODES.md` is reproducible byte-for-byte across filesystems and Perl hash seeds.
 - Added regression coverage for repeated error-code documentation generation under different `PERL_HASH_SEED` values.
+- Accept legal RFC 5322/5536 folded structured header fields during syntax validation; fixes false `PF-RFC-117` results on normal INN-folded `Injection-Info` fields.
+- Structured-field validation now uses an unfolded, case-insensitive header view after physical folding checks, so legal folding in fields such as From, Distribution, Content-Type, Content-Language, User-Agent and Xref is not misclassified.
+- `article_result` now records `detail_header` and `detail_reason` for technical failures, making `PF-RFC-117` / `PF-RFC-118` diagnostics directly actionable from syslog.
 
 - Fixed the RFC 5536 `Injection-Info` serializer so it never emits an empty trailing `;` parameter.
 - Replaced naive semicolon splitting with quote/comment-aware parsing that preserves semicolons, equals signs and escaped characters inside parameter values; duplicate standard parameters and non-`x-` private attributes are rejected.

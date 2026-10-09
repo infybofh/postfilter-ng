@@ -419,6 +419,8 @@ sub process_article {
             legacy      => $result->{legacy},
             message_id  => $context->{message_id},
             pipeline_ms => sprintf('%.3f', $pipeline_elapsed_ms),
+            detail_header => $result->{header} // '',
+            detail_reason => $result->{reason} // '',
             reason      => $result->{code},
             reason_text => $result->message,
             result      => $final->{nntp_result},
@@ -464,6 +466,7 @@ sub _run_pipeline {
         $context->{headers},
         $context->{body},
         phase => 'pre-transform',
+        allow_inn_nnrpd_staging_path => 1,
     );
     unless ($rfc_input_ok) {
         my $first = $rfc_input_errors->[0] || {};
@@ -599,6 +602,7 @@ sub _run_pipeline {
             $context->{headers},
             $context->{body},
             phase => 'post-transform',
+            allow_inn_nnrpd_staging_path => 1,
         );
         unless ($rfc_output_ok) {
             my $first = $rfc_output_errors->[0] || {};

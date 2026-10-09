@@ -86,6 +86,20 @@ sub _strip_cfws {
     return $out;
 }
 
+# Function: _unfold_field_body
+# Purpose: Converts a physically folded RFC 5322 field body into its logical single-line form.
+# Parameters: $value
+# Operational notes: Only legal CRLF/LF followed by WSP is unfolded; malformed bare line breaks fail.
+sub _unfold_field_body {
+    my ($value) = @_;
+    return undef unless defined $value;
+    return undef if $value =~ /\r(?!\n)/;
+    return undef if $value =~ /(?<!\r)\n(?![ \t])/;
+    return undef if $value =~ /\r\n(?![ \t])/;
+    $value =~ s/\r?\n(?=[ \t])//g;
+    return $value;
+}
+
 # Function: _split_semicolons
 # Purpose: Splits an RFC parameter list without splitting semicolons inside quoted strings/comments.
 # Parameters: $value
@@ -205,7 +219,9 @@ sub _valid_path_identity {
 sub parse_injection_info {
     my ($value) = @_;
     return undef unless defined $value && length $value;
-    return undef if $value =~ /[\r\n\0]/;
+    return undef if $value =~ /\0/;
+    $value = _unfold_field_body($value);
+    return undef unless defined $value;
 
     my $parts = _split_semicolons($value) or return undef;
     return undef unless @{$parts};
@@ -492,6 +508,25 @@ sub _valid_path {
     return 1;
 }
 
+# Function: _valid_inn_nnrpd_staging_path
+# Purpose: Validates the temporary Path form produced by INN nnrpd before filter_post runs.
+# Parameters: $value
+# Operational notes: nnrpd prepends .POSTED[.source]! before the Perl hook and innd later
+#                    prepends the server path-identity.  Only that leading POSTED diagnostic
+#                    is accepted as a non-final form; arbitrary leading diagnostics remain invalid.
+sub _valid_inn_nnrpd_staging_path {
+    my ($value) = @_;
+    return 0 unless defined $value && length $value;
+    $value =~ s/^[ \t]+|[ \t]+$//g;
+    return 0 if $value =~ /[\r\n\0]/;
+    return 0 unless $value =~ /\A\.POSTED(?:\.|!)/i;
+
+    # RFC 5537 requires the injecting/relaying agent to prepend its primary
+    # path-identity.  Test the exact future grammar with a harmless synthetic
+    # identity rather than weakening the normal RFC 5536 Path validator.
+    return _valid_path('postfilter.invalid!' . $value);
+}
+
 # Function: _valid_user_agent
 # Purpose: Validates the RFC 5536 sequence of product[/version] tokens with optional CFWS.
 # Parameters: $value
@@ -568,10 +603,47 @@ sub _general_header_error {
     return undef;
 }
 
+# Function: _validation_header_view
+# Purpose: Builds a case-insensitive, unfolded view of headers for structured syntax validation.
+# Parameters: $headers, $errors
+# Operational notes: Physical folding is validated separately; duplicate spellings differing only by case are rejected.
+sub _validation_header_view {
+    my ($headers, $errors) = @_;
+    my %known = map { lc($_) => $_ } qw(
+        From Newsgroups Subject Message-ID Followup-To Distribution Date Expires
+        Injection-Date References Supersedes Control Archive Injection-Info MIME-Version
+        User-Agent Content-Language Content-Transfer-Encoding Approved Sender Content-Type
+        Content-Disposition Xref Lines Path
+    );
+    my %view;
+    my %seen;
+    for my $name (keys %{ $headers || {} }) {
+        next if $name =~ /^__/;
+        my $lc = lc $name;
+        next unless exists $known{$lc};
+        if (exists $seen{$lc}) {
+            push @{$errors}, { header => $known{$lc}, reason => 'duplicate-header-name-case-insensitive' };
+            next;
+        }
+        $seen{$lc} = $name;
+        my $value = $headers->{$name};
+        if (defined $value) {
+            my $unfolded = _unfold_field_body($value);
+            $view{ $known{$lc} } = defined($unfolded) ? $unfolded : $value;
+        }
+        else {
+            $view{ $known{$lc} } = undef;
+        }
+    }
+    return \%view;
+}
+
 # Function: validate_article
 # Purpose: Validates syntax invariants visible to the nnrpd hook before an article can be accepted.
 # Parameters: $headers, $body, %options
 # Operational notes: Date, Message-ID and Path may be absent in a proto-article because RFC 5537 allows the injecting agent to add them.
+#                    Set allow_inn_nnrpd_staging_path only inside INN's filter_post hook, where
+#                    nnrpd has already prepended .POSTED but innd has not yet prepended its identity.
 sub validate_article {
     my ($headers, $body, %options) = @_;
     $headers ||= {};
@@ -582,6 +654,9 @@ sub validate_article {
         my $error = _general_header_error($name, $headers->{$name});
         push @errors, { header => $name, reason => $error } if $error;
     }
+
+    my $validation_headers = _validation_header_view($headers, \@errors);
+    $headers = $validation_headers;
 
     for my $required (qw(From Newsgroups Subject)) {
         push @errors, { header => $required, reason => 'missing-mandatory-header' }
@@ -672,8 +747,12 @@ sub validate_article {
     }
 
     if (defined($headers->{Path}) && length($headers->{Path})) {
+        my $path_ok = _valid_path($headers->{Path});
+        if (!$path_ok && $options{allow_inn_nnrpd_staging_path}) {
+            $path_ok = _valid_inn_nnrpd_staging_path($headers->{Path});
+        }
         push @errors, { header => 'Path', reason => 'invalid-path' }
-            unless _valid_path($headers->{Path});
+            unless $path_ok;
     }
 
     my $body_error = _body_error($body);
