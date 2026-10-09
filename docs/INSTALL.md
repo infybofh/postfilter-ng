@@ -76,8 +76,8 @@ Rc6 installs code below a versioned directory:
 <prefix>/
 ├── releases/
 │   ├── legacy-2026.07.5-rc2/
-│   └── 2026.10.1/
-├── current  -> releases/2026.10.1
+│   └── 2026.10.2/
+├── current  -> releases/2026.10.2
 ├── previous -> releases/legacy-2026.07.5-rc2
 ├── release-state.json
 └── legacy-flat-manifest.json
@@ -120,7 +120,7 @@ The installer:
 A successful candidate installation ends with an explicit notice similar to:
 
 ```text
-Candidate installed and validated: 2026.10.1
+Candidate installed and validated: 2026.10.2
 Active hook was not modified.
 No cleanup was performed because the candidate is not active.
 ```
@@ -341,7 +341,7 @@ available for a roll-forward.
 Failed candidate trees are preserved with names such as:
 
 ```text
-<prefix>/releases/.failed-2026.10.1-YYYYMMDDTHHMMSSZ-<pid>
+<prefix>/releases/.failed-2026.10.2-YYYYMMDDTHHMMSSZ-<pid>
 ```
 
 Legacy snapshot metadata is stored in:

@@ -1,5 +1,5 @@
 ###############################################################################
-# Postfilter-NG 2026.10.1
+# Postfilter-NG 2026.10.2
 # Main configuration file
 ###############################################################################
 #
@@ -605,6 +605,8 @@ check_groups_existence = true
 force_default_organization = true
 organization = "bofh.team Usenet service"
 
+# Removes only deprecated NNTP-Posting-Date. RFC 5537 forbids deleting or
+# replacing a pre-existing Injection-Date.
 delete_posting_date = false
 delete_user_agent = false
 delete_x_no_archive = true

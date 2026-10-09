@@ -63,11 +63,12 @@ For each submitted article the engine:
 
 1. loads the current validated configuration generation;
 2. builds a bounded article context and stable identity representation;
-3. resolves trusted and access profiles;
-4. classifies text or binary content;
+3. enforces non-bypassable RFC 5536 input syntax invariants;
+4. resolves trusted and access profiles and article classification;
 5. applies structural, content, reputation, rate, banlist and custom checks;
 6. applies permitted header transformations;
-7. records the final result and rule hits in SQLite;
+7. enforces a second RFC invariant on the transformed article;
+8. records the final result and rule hits in SQLite;
 8. returns an empty string for acceptance or a client-visible rejection string.
 
 The whole pipeline is constrained by the configured processing budget. DNS work
@@ -102,3 +103,5 @@ Cleanup accepts only release directories below the managed `releases` root with
 a valid `.postfilter-ng-release.json` marker. It retains at least active plus one
 rollback release and never removes anything when the active hook is older,
 unrecognised, external or unable to load.
+
+See [`RFC-COMPLIANCE.md`](RFC-COMPLIANCE.md) for the standards boundary and nnrpd hook limitations.

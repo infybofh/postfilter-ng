@@ -24,6 +24,7 @@ C<yes>, never to plaintext and never to a predictable key.
 
 use Postfilter::Codes;
 use Postfilter::Result;
+use Postfilter::RFC5536 qw(parse_injection_info serialize_injection_info);
 use Postfilter::Util qw(hmac_id);
 use Postfilter::Version;
 
@@ -48,7 +49,8 @@ sub apply {
     }
 
     _transform_sender($context);
-    _transform_injection_information($context);
+    my $injection_result = _transform_injection_information($context);
+    return $injection_result if $injection_result && !$injection_result->is_pass;
     _transform_path($context);
 
     if ($header_config->{delete_user_agent}) {
@@ -185,10 +187,10 @@ sub _transform_sender {
 
 =head2 _transform_injection_information($context)
 
-Parses the semicolon-separated fields used by INN's C<Injection-Info>.  Unknown
-fields are preserved unless a configured transformation specifically replaces
-posting-host or posting-account.  Values are split on the first equals sign so
-embedded equals characters are not lost.
+Parses INN's C<Injection-Info> with RFC 5536 parameter grammar. Unknown C<x-*>
+extensions are preserved unless a configured transformation specifically replaces
+posting-host or posting-account. Quoted semicolons, equals signs and quoted-pairs
+are preserved and serialization never emits an empty trailing parameter.
 
 =cut
 
@@ -204,46 +206,38 @@ sub _transform_injection_information {
     my $header_config = $context->{config}{headers};
 
     if ($header_config->{delete_posting_date}) {
+        # RFC 5537 requires a pre-existing Injection-Date to remain unchanged.
+        # This legacy option therefore removes only the deprecated
+        # NNTP-Posting-Date compatibility field.
         _remove_header($headers, 'NNTP-Posting-Date');
-        _remove_header($headers, 'Injection-Date');
     }
 
     my $injection_info = $headers->{'Injection-Info'} // '';
     if (length $injection_info) {
-        my ($server, @raw_items) = split /\s*;\s*/, $injection_info;
-        my @items;
+        my $parsed = parse_injection_info($injection_info);
+        return _reject(117, header => 'Injection-Info', reason => 'invalid-injection-info')
+            unless $parsed;
 
-        for my $raw_item (@raw_items) {
-            next unless length $raw_item;
-            my ($name, $value) = split /\s*=\s*/, $raw_item, 2;
-            next unless defined $value;
-            $value =~ s/^"|"$//g;
-            push @items, {
-                name  => lc($name),
-                value => $value,
-            };
-        }
-
+        my $items = $parsed->{parameters};
         _apply_injection_field_mode(
             $context,
-            \@items,
+            $items,
             'posting-host',
             $header_config->{posting_host},
             $context->{client_hostname} // $context->{client_ip},
         );
         _apply_injection_field_mode(
             $context,
-            \@items,
+            $items,
             'posting-account',
             $header_config->{posting_account},
             $context->{user} // '',
         );
 
-        my @output = grep { length } ($server);
-        for my $item (@items) {
-            push @output, sprintf('%s="%s"', $item->{name}, $item->{value});
-        }
-        $headers->{'Injection-Info'} = join('; ', @output) . ';';
+        my $serialized = serialize_injection_info($parsed);
+        return _reject(118, header => 'Injection-Info', reason => 'serialization-failed')
+            unless defined $serialized;
+        $headers->{'Injection-Info'} = $serialized;
         return;
     }
 

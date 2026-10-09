@@ -472,6 +472,37 @@ failure policy, concurrency, security implications and side effects.
 |---|---|---|
 | `save` | Saves the complete current article with an exclusive chronological name and returns metadata. | `$class, $context, $result` |
 
+
+## `lib/Postfilter/RFC5536.pm`
+
+| Function | Purpose | Parameters |
+|---|---|---|
+| `valid_message_id` | Validates the restricted RFC 5536 msg-id syntax and 250-octet limit. | `$value` |
+| `_strip_cfws` | Removes simple RFC comments and folding whitespace used around structured elements. | `$value` |
+| `_split_semicolons` | Splits an RFC parameter list without splitting semicolons inside quoted strings/comments. | `$value` |
+| `_unquote_value` | Decodes one MIME parameter token/quoted-string while preserving its semantic value. | `$raw` |
+| `_quote_value` | Serializes one Injection-Info parameter as a safe MIME quoted-string. | `$value` |
+| `_valid_path_identity` | Validates the RFC 5536 path-identity form used by Injection-Info. | `$value` |
+| `parse_injection_info` | Parses RFC 5536 Injection-Info without losing quoted semicolons or equals signs. | `$value` |
+| `serialize_injection_info` | Serializes a parsed Injection-Info structure without a trailing semicolon. | `$parsed` |
+| `valid_injection_info` | Reports whether an Injection-Info field is RFC 5536 parseable. | `$value` |
+| `_valid_references` | Validates References as one or more RFC 5536 msg-id values separated by CFWS. | `$value` |
+| `_valid_distribution` | Validates RFC 5536 Distribution dist-list syntax. | `$value` |
+| `_valid_control` | Validates RFC 5536 generic Control syntax and Control/Supersedes exclusivity is checked separately. | `$value` |
+| `_valid_archive` | Validates the RFC 5536 Archive yes/no form and MIME-style parameters. | `$value` |
+| `_valid_date` | Validates the current RFC 5322 date-time syntax used by RFC 5536. | `$value` |
+| `_valid_mime_version` | Validates the canonical MIME-Version grammar used by MIME-conformant Netnews articles. | `$value` |
+| `_valid_cte` | Validates Content-Transfer-Encoding token syntax. | `$value` |
+| `_valid_parameterized_header` | Validates a MIME token/token or token value followed by RFC-style parameters. | `$value, $media_type` |
+| `_valid_mailbox_list` | Applies a conservative current-syntax mailbox-list check to Netnews address fields. | `$value, $single` |
+| `_valid_xref` | Validates the RFC 5536 Xref server-name and newsgroup:article-locator list. | `$value` |
+| `_valid_path` | Validates RFC 5536 Path including match/other diagnostics and a legacy tail entry. | `$value` |
+| `_valid_user_agent` | Validates the RFC 5536 sequence of product[/version] tokens with optional CFWS. | `$value` |
+| `_valid_content_language` | Validates common RFC 3282 Content-Language language lists. | `$value` |
+| `_body_error` | Enforces RFC 5322 body line and NUL constraints independently of site policy limits. | `$body` |
+| `_general_header_error` | Applies RFC 5322/5536 invariants common to every exposed header field. | `$name, $value` |
+| `validate_article` | Validates syntax invariants visible to the nnrpd hook before an article can be accepted. | `$headers, $body, %options` |
+
 ## `lib/Postfilter/Util.pm`
 
 | Function | Purpose | Parameters |

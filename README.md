@@ -22,7 +22,7 @@ Postfilter-NG is a Perl posting filter for the INN `nnrpd` service. It validates
 articles before acceptance, applies text and binary policies, records searchable
 audit events in SQLite, and supports staged deployment through audit mode.
 
-> **Version:** `2026.10.1`  
+> **Version:** `2026.10.2`  
 > **Status:** **Stable release**  
 > **Runtime:** [Perl](https://www.perl.org/) 5.38 or newer and
 > [INN](https://www.eyrie.org/~eagle/software/inn/) 2.x  
@@ -250,6 +250,7 @@ administrative audit event.
 - [`docs/TEXT-AND-BINARY.md`](docs/TEXT-AND-BINARY.md) — article classification and independent profiles.
 - [`docs/TEXT-MIME-ATTACHMENTS.md`](docs/TEXT-MIME-ATTACHMENTS.md) — MIME, Base64 and cryptographic-material handling.
 - [`docs/ERROR-CODES.md`](docs/ERROR-CODES.md) — symbolic and numeric result codes.
+- [`docs/RFC-COMPLIANCE.md`](docs/RFC-COMPLIANCE.md) — RFC 5536/5537 syntax invariants and hook-level limitations.
 - [`docs/FUNCTION-REFERENCE.md`](docs/FUNCTION-REFERENCE.md) — documented Perl functions.
 - [`docs/MIGRATION.md`](docs/MIGRATION.md) — migration from Postfilter 0.9.x configurations.
 - [`docs/SECURITY.md`](docs/SECURITY.md) — keys, identity storage and threat boundaries.
@@ -266,7 +267,7 @@ YYYY.MM.patch-stageN
 Examples:
 
 ```text
-2026.10.1
+2026.10.2
 2026.07.5
 ```
 

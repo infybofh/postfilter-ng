@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026.10.2 - 2026-10-08
+
+RFC conformance hardening release following a public `Injection-Info` report.
+
+- Fixed the RFC 5536 `Injection-Info` serializer so it never emits an empty trailing `;` parameter.
+- Replaced naive semicolon splitting with quote/comment-aware parsing that preserves semicolons, equals signs and escaped characters inside parameter values; duplicate standard parameters and non-`x-` private attributes are rejected.
+- Added non-bypassable RFC syntax invariants before policy/trusted-profile processing and after header transformations (`PF-RFC-117` / `PF-RFC-118`).
+- Added validation for RFC 5536 Message-ID, date-time, Path, References, Supersedes, Control, Distribution, Archive, Injection-Info, User-Agent, Xref, Lines and core MIME syntax, plus RFC 5322 header/body hard limits and header character rules.
+- Fixed date validation that previously relied on permissive `Date::Parse` parsing and could accept non-RFC forms such as `2026-10-08`.
+- Fixed `headers.delete_posting_date`: it now removes only deprecated `NNTP-Posting-Date`; an existing RFC 5537 `Injection-Date` is preserved as required.
+- Added an end-to-end RFC compliance regression fixture with broad Netnews/MIME header coverage and negative tests for malformed input and unsafe local header transformations.
+- Added `docs/RFC-COMPLIANCE.md` documenting enforced invariants, RFC scope and nnrpd hook limitations.
+
 ## 2026.10.1 - 2026-10-05
 
 Stable release based on the widely tested 2026.09.1-rc3 line.

@@ -88,7 +88,7 @@ Cancel-Lock and Cancel-Key processing remains under INN.
 | `delete_path` | `headers.delete_path` | `false`, `true`, `anon` supported. |
 | `delete_sender` | `headers.delete_sender` | Retained with HMAC pseudonymization. |
 | `delete_posting_host` | `headers.delete_posting_host` | Retained with HMAC pseudonymization. |
-| `delete_posting_date` | `headers.delete_posting_date` | Retained. |
+| `delete_posting_date` | `headers.delete_posting_date` | Retained for deprecated `NNTP-Posting-Date`; RFC 5537 `Injection-Date` is always preserved. |
 | `delete_header_user-agent` | `headers.delete_user_agent` | Name normalized. |
 | `delete_header_x-no-archive` | `headers.delete_x_no_archive` | Name normalized. |
 | `delete_header_x-trace` | `headers.delete_x_trace` | Name normalized. |

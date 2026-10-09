@@ -60,6 +60,7 @@ use Postfilter::InstallPaths;
 use Postfilter::Logger;
 use Postfilter::PublicSuffix;
 use Postfilter::Result;
+use Postfilter::RFC5536 qw(validate_article);
 use Postfilter::SavedArticle;
 use Postfilter::Version;
 
@@ -452,14 +453,28 @@ sub _run_pipeline {
         );
     }
 
-    # RFC 5536 syntax is an injection invariant, not a site policy.  Validate
-    # the raw group-list headers before article classification, trusted-profile
-    # bypasses, group existence checks or crosspost policy can reinterpret a
-    # malformed value.
+    # RFC syntax is an injection invariant, not a site policy.  Preserve the
+    # established group-specific codes first, then validate the rest of the
+    # article before trusted-profile or audit handling can bypass it.
     return _create_rejection_result(115)  # PF-GROUP-115
         unless $context->{newsgroups_syntax_valid};
     return _create_rejection_result(116)  # PF-GROUP-116
         unless $context->{followup_syntax_valid};
+    my ($rfc_input_ok, $rfc_input_errors) = validate_article(
+        $context->{headers},
+        $context->{body},
+        phase => 'pre-transform',
+    );
+    unless ($rfc_input_ok) {
+        my $first = $rfc_input_errors->[0] || {};
+        return Postfilter::Result->reject(
+            code    => 'PF-RFC-117',
+            legacy  => 117,
+            message => 'Article violates RFC 5536 syntax',
+            header  => $first->{header} // '',
+            reason  => $first->{reason} // 'invalid-article',
+        );
+    }
 
     # Mixed crossposts are rejected before trusted-profile processing.  A text
     # group must never inherit binary limits or binary payload permissions merely
@@ -573,6 +588,27 @@ sub _run_pipeline {
         if (!$transformation->is_pass) {
             return $transformation unless $config->{policy}{mode} eq 'audit';
             $first_rejection //= $transformation;
+        }
+    }
+
+    # Header transformations are also subject to RFC invariants.  This catches
+    # bugs in Postfilter itself (for example a malformed Injection-Info
+    # serializer) before nnrpd can accept the transformed article.
+    if (!$context->{processing_timeout_result}) {
+        my ($rfc_output_ok, $rfc_output_errors) = validate_article(
+            $context->{headers},
+            $context->{body},
+            phase => 'post-transform',
+        );
+        unless ($rfc_output_ok) {
+            my $first = $rfc_output_errors->[0] || {};
+            return Postfilter::Result->reject(
+                code    => 'PF-RFC-118',
+                legacy  => 118,
+                message => 'Header transformation produced invalid RFC 5536 output',
+                header  => $first->{header} // '',
+                reason  => $first->{reason} // 'invalid-transformed-article',
+            );
         }
     }
 

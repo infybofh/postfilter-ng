@@ -108,6 +108,8 @@ my %HINT = (
     114 => ['article_types.text.mime.allowed_multipart_types', 'Multipart container policy'],
     115 => ['Newsgroups structural preflight', 'RFC 5536 Newsgroups syntax'],
     116 => ['Followup-To structural preflight', 'RFC 5536 Followup-To syntax'],
+    117 => ['RFC 5536 invariant preflight', 'RFC 5536 article/header syntax'],
+    118 => ['RFC 5536 post-transform invariant', 'RFC 5536 transformation safety'],
 );
 
 for my $code (31 .. 33) { $HINT{$code} = ['access.*_limits.max_articles / access_profile.limits.max_articles', 'Long-window article rate']; }

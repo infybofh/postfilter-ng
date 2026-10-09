@@ -137,6 +137,8 @@ my %MESSAGE = (
     114 => 'Unapproved multipart container is forbidden in text groups',
     115 => 'Invalid Newsgroups syntax',
     116 => 'Invalid Followup-To syntax',
+    117 => 'Article violates RFC 5536 syntax',
+    118 => 'Header transformation produced invalid RFC 5536 output',
 );
 
 my %SPECIAL_SYMBOLIC = (
@@ -151,6 +153,8 @@ my %SPECIAL_SYMBOLIC = (
     112 => 'PF-BODY-112',
     113 => 'PF-MIME-113',
     114 => 'PF-MIME-114',
+    117 => 'PF-RFC-117',
+    118 => 'PF-RFC-118',
 );
 
 my %CATEGORY = (
@@ -266,6 +270,8 @@ my %CATEGORY = (
     114 => 'MIME',
     115 => 'GROUP',
     116 => 'GROUP',
+    117 => 'RFC',
+    118 => 'RFC',
 );
 
 
